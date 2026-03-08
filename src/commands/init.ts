@@ -4,7 +4,7 @@ import ora from "ora";
 import chalk from "chalk";
 
 import { ensureGlobalDirs, ensureProjectDirs, getGlobalPaths, getProjectPaths, addToGitignore } from "../core/storage.js";
-import { createDatabase, insertSkill } from "../core/database.js";
+import { createDatabase, insertSkill, getSkillByName } from "../core/database.js";
 import { generateEmbedding, isModelDownloaded } from "../core/embeddings.js";
 import { readSkillFile, copySkillFile, getSkillNameFromPath, hashContent, deleteSkillFile, listSkillFiles, fileExists } from "../core/file-manager.js";
 import { generateIndexableText, generateSnippet } from "../core/frontmatter.js";
@@ -262,7 +262,16 @@ async function indexFile(
     scope: "global" | "project"
 ): Promise<void> {
     const parsed = await readSkillFile(filePath);
-    const name = parsed.frontmatter.name || getSkillNameFromPath(filePath);
+    let name = parsed.frontmatter.name || getSkillNameFromPath(filePath);
+
+    // Resolve name collisions in the database
+    let counter = 1;
+    let baseName = name;
+    while (getSkillByName(db, name)) {
+        name = `${baseName}-${counter}`;
+        counter++;
+    }
+
     const indexableText = generateIndexableText(parsed.frontmatter, parsed.body);
     const snippet = generateSnippet(parsed.frontmatter, parsed.body);
     const embedding = await generateEmbedding(indexableText);
