@@ -86,7 +86,7 @@ export function createSkillDepotServer(projectRoot?: string): {
             },
         },
         async ({ name, cwd }) => {
-            const record = getSkillByName(ctx.globalDb, name);
+            const record = getSkillByName(ctx.globalDb, name, cwd);
             if (!record) {
                 return {
                     content: [
@@ -150,7 +150,7 @@ export function createSkillDepotServer(projectRoot?: string): {
             const actualScope = scope;
 
             // Check if skill already exists
-            const existing = getSkillByName(db, name);
+            const existing = getSkillByName(db, name, cwd);
             if (existing) {
                 return {
                     content: [
@@ -215,7 +215,7 @@ export function createSkillDepotServer(projectRoot?: string): {
             },
         },
         async ({ name, content, description, tags, keywords, cwd }) => {
-            const record = getSkillByName(ctx.globalDb, name);
+            const record = getSkillByName(ctx.globalDb, name, cwd);
             const db = ctx.globalDb;
 
             if (!record) {
@@ -278,7 +278,7 @@ export function createSkillDepotServer(projectRoot?: string): {
             },
         },
         async ({ name, cwd }) => {
-            const record = getSkillByName(ctx.globalDb, name);
+            const record = getSkillByName(ctx.globalDb, name, cwd);
             const db = ctx.globalDb;
 
             if (!record) {
