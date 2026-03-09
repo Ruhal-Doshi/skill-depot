@@ -180,7 +180,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
                 {
                     "skill-depot": {
                         command: "npx",
-                        args: ["skill-depot", "serve"],
+                        args: ["skill-depot", "serve", "--project", projectRoot],
                     },
                 },
                 null,

@@ -38,7 +38,7 @@ Add skill-depot to your agent's MCP configuration:
   "mcpServers": {
     "skill-depot": {
       "command": "npx",
-      "args": ["skill-depot", "serve"]
+      "args": ["skill-depot", "serve", "--project", "/absolute/path/to/your/project"]
     }
   }
 }
@@ -50,14 +50,13 @@ Add skill-depot to your agent's MCP configuration:
 
 Depending on your agent, MCP servers can be configured globally or per-project.
 
-**Project-Level Config (e.g., Cursor, Windsurf)**  
-If configured per-project, the agent naturally starts `skill-depot` inside the active repository. The command `npx skill-depot serve` will automatically find both your global skills and that specific project's skills.
-
 **Global Config (e.g., Claude Code)**  
-If configured globally, the server loads the skills belonging to whatever directory you run the agent from. 
-*Optional:* You can force the server to **always** serve a specific project's skills (regardless of where you run the agent) by passing the `--project` flag:
+If configured globally in `~/.claude/mcp.json`, the background daemon runs from your home directory. Therefore, you **must** pass the absolute `--project` path so the server finds the correct `.skill-depot/index.db`.
+
+**Project-Level Config (e.g., Cursor, Windsurf)**  
+If configured per-project (e.g., inside `.cursor/mcp.json`), the agent naturally starts `skill-depot` inside the active repository. In this case, you can omit the `--project` flag:
 ```json
-"args": ["skill-depot", "serve", "--project", "/absolute/path/to/project"]
+"args": ["skill-depot", "serve"]
 ```
 
 ### 3. Use
