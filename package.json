@@ -1,6 +1,6 @@
 {
   "name": "skill-depot",
-  "version": "0.0.1-alpha.3",
+  "version": "0.1.0",
   "description": "RAG-based skill retrieval system for AI agents. Scalable long-term storage with semantic search via MCP.",
   "type": "module",
   "bin": {
