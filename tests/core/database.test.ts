@@ -110,11 +110,17 @@ describe("database", () => {
             db.close();
         });
 
-        it("should reject duplicate skill names", () => {
+        it("should accept duplicate skill names and update them", () => {
             const db = createDatabase(dbPath);
-            insertSkill(db, makeSkill("duplicate"));
+            insertSkill(db, makeSkill("duplicate", { description: "old desc" }));
 
-            expect(() => insertSkill(db, makeSkill("duplicate"))).toThrow();
+            // Second insert should update the row instead of throwing
+            const id = insertSkill(db, makeSkill("duplicate", { description: "new desc" }));
+            expect(id).toBeGreaterThan(0);
+
+            const record = getSkillByName(db, "duplicate");
+            expect(record!.description).toBe("new desc");
+
             db.close();
         });
     });

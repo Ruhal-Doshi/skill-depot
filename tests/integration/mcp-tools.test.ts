@@ -128,7 +128,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
             expect(record!.scope).toBe("global");
         });
 
-        it("should reject duplicate skill names", async () => {
+        it("should accept duplicate skill names and update them", async () => {
             const name = "duplicate-skill";
             const frontmatter = { name, description: "test", tags: [], keywords: [] };
             const filePath = path.join(ctx.globalSkillsDir, `${name}.md`);
@@ -149,22 +149,27 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 embedding,
             });
 
-            // Second insert should throw
-            expect(() =>
-                insertSkill(ctx.globalDb, {
-                    name,
-                    description: "test2",
-                    tags: [],
-                    keywords: [],
-                    contentHash: "def",
-                    filePath: filePath + "2",
-                    scope: "global",
-                    projectPath: "",
-                    snippet: "test2",
-                    indexableText: "test2",
-                    embedding,
-                })
-            ).toThrow();
+            // Second insert should update row instead of throwing
+            const updatedEmbedding = generateEmbedding("test2");
+            const newId = insertSkill(ctx.globalDb, {
+                name,
+                description: "test2",
+                tags: [],
+                keywords: [],
+                contentHash: "def",
+                filePath: filePath + "2",
+                scope: "global",
+                projectPath: "",
+                snippet: "test2",
+                indexableText: "test2",
+                embedding: updatedEmbedding,
+            });
+
+            expect(newId).toBeGreaterThan(0);
+
+            const record = getSkillByName(ctx.globalDb, name);
+            expect(record!.description).toBe("test2");
+            expect(record!.file_path).toBe(filePath + "2");
         });
     });
 

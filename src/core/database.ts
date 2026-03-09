@@ -104,10 +104,20 @@ export function insertSkill(db: Database.Database, skill: SkillInsert): number {
     const insertSkillStmt = db.prepare(`
     INSERT INTO skills (name, description, tags, keywords, content_hash, file_path, scope, project_path, snippet, indexable_text, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(name, scope, project_path) DO UPDATE SET
+      description = excluded.description,
+      tags = excluded.tags,
+      keywords = excluded.keywords,
+      content_hash = excluded.content_hash,
+      file_path = excluded.file_path,
+      snippet = excluded.snippet,
+      indexable_text = excluded.indexable_text,
+      updated_at = excluded.updated_at
+    RETURNING id
   `);
 
     const transaction = db.transaction(() => {
-        const result = insertSkillStmt.run(
+        const row = insertSkillStmt.get(
             skill.name,
             skill.description,
             JSON.stringify(skill.tags),
@@ -120,9 +130,9 @@ export function insertSkill(db: Database.Database, skill: SkillInsert): number {
             skill.indexableText,
             now,
             now
-        );
+        ) as { id: number };
 
-        const skillId = Number(result.lastInsertRowid);
+        const skillId = row.id;
 
         // Convert Float32Array to a Buffer for sqlite-vec
         const embeddingBuffer = Buffer.from(
@@ -130,6 +140,9 @@ export function insertSkill(db: Database.Database, skill: SkillInsert): number {
             skill.embedding.byteOffset,
             skill.embedding.byteLength
         );
+
+        // Remove old embedding if this was an update, before replacing
+        db.prepare(`DELETE FROM skill_vectors WHERE skill_id = ${skillId}`).run();
 
         // NOTE: sqlite-vec vec0 virtual tables reject bound parameters for
         // integer primary keys. We must interpolate skill_id as a SQL literal.
