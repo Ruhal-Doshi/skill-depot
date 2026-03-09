@@ -17,7 +17,6 @@ export interface StoragePaths {
 export interface ProjectPaths {
     projectDir: string;
     projectSkillsDir: string;
-    projectDbPath: string;
 }
 
 /**
@@ -50,7 +49,6 @@ export function getProjectPaths(projectRoot: string): ProjectPaths {
     return {
         projectDir,
         projectSkillsDir: path.join(projectDir, "skills"),
-        projectDbPath: path.join(projectDir, "index.db"),
     };
 }
 
@@ -107,32 +105,3 @@ export function isGlobalInitialized(): boolean {
     return existsSync(getGlobalDir());
 }
 
-/**
- * Attempt to add .skill-depot/index.db to the project's .gitignore.
- * Returns true if successful, false if no .gitignore found or write failed.
- */
-export async function addToGitignore(projectRoot: string): Promise<boolean> {
-    const gitignorePath = path.join(projectRoot, ".gitignore");
-    const entry = ".skill-depot/index.db";
-
-    try {
-        let content = "";
-        if (existsSync(gitignorePath)) {
-            content = await fs.readFile(gitignorePath, "utf-8");
-            // Already present
-            if (content.includes(entry)) {
-                return true;
-            }
-        }
-
-        const newline = content.endsWith("\n") || content === "" ? "" : "\n";
-        await fs.writeFile(
-            gitignorePath,
-            `${content}${newline}\n# skill-depot index (machine-specific, rebuilt via 'skill-depot reindex')\n${entry}\n`,
-            "utf-8"
-        );
-        return true;
-    } catch {
-        return false;
-    }
-}

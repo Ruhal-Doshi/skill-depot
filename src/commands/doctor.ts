@@ -59,13 +59,11 @@ export async function doctorCommand(): Promise<void> {
     if (isProjectInitialized(projectRoot)) {
         log.success("Project-level skill-depot found");
 
-        const projectPaths = getProjectPaths(projectRoot);
-        if (existsSync(projectPaths.projectDbPath)) {
-            const db = createDatabase(projectPaths.projectDbPath);
-            const count = getSkillCount(db);
-            log.success(`Project database: ${count} skills indexed`);
+        if (existsSync(globalPaths.globalDbPath)) {
+            const db = createDatabase(globalPaths.globalDbPath);
+            const skills = getAllSkills(db, "project", projectRoot);
+            log.success(`Project database: ${skills.length} skills indexed in global DB`);
 
-            const skills = getAllSkills(db);
             let staleCount = 0;
             for (const skill of skills) {
                 if (!fileExists(skill.file_path)) {
@@ -76,7 +74,6 @@ export async function doctorCommand(): Promise<void> {
                 log.warn(`${staleCount} stale project references — run 'skill-depot reindex'`);
                 issues++;
             }
-
             db.close();
         }
     } else {

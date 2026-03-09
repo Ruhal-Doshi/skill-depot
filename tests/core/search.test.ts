@@ -33,6 +33,7 @@ function makeSkill(
         contentHash: "abc",
         filePath: `/path/${name}.md`,
         scope: "global",
+        projectPath: overrides.scope === "project" ? "/project/path" : "",
         snippet: `Snippet for ${name}`,
         indexableText: `${name} test`,
         embedding: makeEmbedding(name.charCodeAt(0)),
@@ -43,12 +44,10 @@ function makeSkill(
 describe("search", () => {
     let tmpDir: string;
     let globalDbPath: string;
-    let projectDbPath: string;
 
     beforeEach(async () => {
         tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "skill-depot-search-"));
         globalDbPath = path.join(tmpDir, "global.db");
-        projectDbPath = path.join(tmpDir, "project.db");
     });
 
     afterEach(async () => {
@@ -58,15 +57,14 @@ describe("search", () => {
     describe("listSkills", () => {
         it("should list skills from both databases", () => {
             const globalDb = createDatabase(globalDbPath);
-            const projectDb = createDatabase(projectDbPath);
 
             insertSkill(globalDb, makeSkill("global-skill", { scope: "global" }));
             insertSkill(
-                projectDb,
+                globalDb,
                 makeSkill("project-skill", { scope: "project" })
             );
 
-            const results = listSkills(globalDb, projectDb, "all");
+            const results = listSkills(globalDb, "all", "/project/path");
 
             expect(results).toHaveLength(2);
             expect(results.map((r) => r.name).sort()).toEqual([
@@ -75,34 +73,34 @@ describe("search", () => {
             ]);
 
             globalDb.close();
-            projectDb.close();
         });
 
         it("should filter by scope", () => {
             const globalDb = createDatabase(globalDbPath);
-            const projectDb = createDatabase(projectDbPath);
 
             insertSkill(globalDb, makeSkill("global-1", { scope: "global" }));
-            insertSkill(projectDb, makeSkill("project-1", { scope: "project" }));
+            insertSkill(globalDb, makeSkill("project-1", { scope: "project" }));
 
-            const globalOnly = listSkills(globalDb, projectDb, "global");
+            const globalOnly = listSkills(globalDb, "global", "/project/path");
             expect(globalOnly).toHaveLength(1);
             expect(globalOnly[0].name).toBe("global-1");
 
-            const projectOnly = listSkills(globalDb, projectDb, "project");
+            const projectOnly = listSkills(globalDb, "project", "/project/path");
             expect(projectOnly).toHaveLength(1);
             expect(projectOnly[0].name).toBe("project-1");
 
             globalDb.close();
-            projectDb.close();
         });
 
-        it("should work with null project database", () => {
+        it("should return only global skills when out of project context", () => {
             const globalDb = createDatabase(globalDbPath);
             insertSkill(globalDb, makeSkill("only-global", { scope: "global" }));
+            insertSkill(globalDb, makeSkill("only-project", { scope: "project" }));
 
-            const results = listSkills(globalDb, null, "all");
+            const results = listSkills(globalDb, "all", "/other/path");
+            // It should only return global since the cwd doesn't match the project skill's path
             expect(results).toHaveLength(1);
+            expect(results[0].name).toBe("only-global");
 
             globalDb.close();
         });
@@ -125,7 +123,7 @@ describe("search", () => {
                 })
             );
 
-            const results = listSkills(globalDb, null, "all", "deployment");
+            const results = listSkills(globalDb, "all", "/project/path", "deployment");
             expect(results).toHaveLength(1);
             expect(results[0].name).toBe("vercel-deploy");
 
@@ -139,7 +137,7 @@ describe("search", () => {
             insertSkill(globalDb, makeSkill("alpha", { scope: "global" }));
             insertSkill(globalDb, makeSkill("middle", { scope: "global" }));
 
-            const results = listSkills(globalDb, null);
+            const results = listSkills(globalDb, "all", "/project/path");
             expect(results.map((r) => r.name)).toEqual([
                 "alpha",
                 "middle",

@@ -9,16 +9,8 @@ export async function searchCommand(query: string, topK: number = 5): Promise<vo
     const globalPaths = await ensureGlobalDirs();
     const globalDb = createDatabase(globalPaths.globalDbPath);
 
-    let projectDb;
     try {
-        const projectPaths = await ensureProjectDirs(projectRoot);
-        projectDb = createDatabase(projectPaths.projectDbPath);
-    } catch {
-        projectDb = null;
-    }
-
-    try {
-        const results = await searchSkills(globalDb, projectDb, query, { topK });
+        const results = await searchSkills(globalDb, query, { topK, scope: "all", cwd: projectRoot });
 
         if (results.length === 0) {
             log.info("No matching skills found.");
@@ -40,6 +32,5 @@ export async function searchCommand(query: string, topK: number = 5): Promise<vo
         }
     } finally {
         globalDb.close();
-        projectDb?.close();
     }
 }

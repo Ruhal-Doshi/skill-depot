@@ -8,16 +8,8 @@ export async function listCommand(scope: "all" | "global" | "project"): Promise<
     const globalPaths = await ensureGlobalDirs();
     const globalDb = createDatabase(globalPaths.globalDbPath);
 
-    let projectDb;
     try {
-        const projectPaths = await ensureProjectDirs(projectRoot);
-        projectDb = createDatabase(projectPaths.projectDbPath);
-    } catch {
-        projectDb = null;
-    }
-
-    try {
-        const skills = listSkills(globalDb, projectDb, scope);
+        const skills = listSkills(globalDb, scope, projectRoot);
 
         if (skills.length === 0) {
             log.info("No skills indexed yet. Run 'skill-depot init' or 'skill-depot add' to get started.");
@@ -32,6 +24,5 @@ export async function listCommand(scope: "all" | "global" | "project"): Promise<
         log.info(`Total: ${skills.length} skills`);
     } finally {
         globalDb.close();
-        projectDb?.close();
     }
 }

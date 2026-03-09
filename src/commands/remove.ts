@@ -8,33 +8,18 @@ export async function removeCommand(name: string): Promise<void> {
     const globalPaths = await ensureGlobalDirs();
     const globalDb = createDatabase(globalPaths.globalDbPath);
 
-    let projectDb;
-    try {
-        const projectPaths = await ensureProjectDirs(projectRoot);
-        projectDb = createDatabase(projectPaths.projectDbPath);
-    } catch {
-        projectDb = null;
+    const record = getSkillByName(globalDb, name);
+    const db = globalDb;
+
+    if (!record) {
+        log.error(`Skill "${name}" not found`);
+        return;
     }
 
-    try {
-        // Check project first, then global
-        const projectRecord = projectDb ? getSkillByName(projectDb, name) : null;
-        const globalRecord = getSkillByName(globalDb, name);
-        const record = projectRecord || globalRecord;
-        const db = projectRecord ? projectDb! : globalDb;
+    // Delete file and DB record
+    await deleteSkillFile(record.file_path);
+    deleteSkill(db, name);
 
-        if (!record) {
-            log.error(`Skill "${name}" not found`);
-            return;
-        }
-
-        // Delete file and DB record
-        await deleteSkillFile(record.file_path);
-        deleteSkill(db, name);
-
-        log.success(`Removed: ${name} [${record.scope}]`);
-    } finally {
-        globalDb.close();
-        projectDb?.close();
-    }
+    log.success(`Removed: ${name} [${record.scope}]`);
+    globalDb.close();
 }

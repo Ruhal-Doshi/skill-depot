@@ -19,61 +19,23 @@ export interface SearchResult {
 interface SearchOptions {
     topK?: number;
     scope?: "all" | "global" | "project";
+    cwd?: string;
 }
 
 /**
  * Search for skills across databases using semantic vector search.
- * When scope is 'all', searches both global and project DBs and merges results.
  */
 export async function searchSkills(
-    globalDb: Database.Database,
-    projectDb: Database.Database | null,
+    db: Database.Database,
     query: string,
     options: SearchOptions = {}
 ): Promise<SearchResult[]> {
-    const { topK = 5, scope = "all" } = options;
+    const { topK = 5, scope = "all", cwd } = options;
 
     // Generate embedding for the query
     const queryEmbedding = await generateEmbedding(query);
 
-    let results: SearchResult[] = [];
-
-    // Search global DB
-    if (scope === "all" || scope === "global") {
-        const globalResults = searchInDb(globalDb, queryEmbedding, topK);
-        results.push(...globalResults);
-    }
-
-    // Search project DB
-    if (projectDb && (scope === "all" || scope === "project")) {
-        const projectResults = searchInDb(projectDb, queryEmbedding, topK);
-        results.push(...projectResults);
-    }
-
-    // Sort by relevance score (higher is better) and deduplicate by name
-    results.sort((a, b) => b.relevanceScore - a.relevanceScore);
-
-    // Deduplicate: keep the highest-scoring entry for each name
-    const seen = new Set<string>();
-    results = results.filter((r) => {
-        if (seen.has(r.name)) return false;
-        seen.add(r.name);
-        return true;
-    });
-
-    return results.slice(0, topK);
-}
-
-/**
- * Search within a single database
- */
-function searchInDb(
-    db: Database.Database,
-    queryEmbedding: Float32Array,
-    topK: number
-): SearchResult[] {
-    const vectorResults = searchByVector(db, queryEmbedding, topK);
-
+    const vectorResults = searchByVector(db, queryEmbedding, topK, scope, cwd);
     const results: SearchResult[] = [];
 
     for (const vr of vectorResults) {
@@ -81,7 +43,6 @@ function searchInDb(
         if (!skill) continue;
 
         // Convert distance to a similarity score (0-1, higher is better)
-        // sqlite-vec uses L2 distance by default, so lower distance = more similar
         const relevanceScore = 1 / (1 + vr.distance);
 
         results.push({
@@ -101,9 +62,9 @@ function searchInDb(
  * List all indexed skills with optional filtering
  */
 export function listSkills(
-    globalDb: Database.Database,
-    projectDb: Database.Database | null,
+    db: Database.Database,
     scope?: "all" | "global" | "project",
+    cwd?: string,
     tag?: string
 ): Array<{
     name: string;
@@ -126,12 +87,12 @@ export function listSkills(
     });
 
     if (!scope || scope === "all" || scope === "global") {
-        const globalSkills = getAllSkills(globalDb, "global", tag);
+        const globalSkills = getAllSkills(db, "global", undefined, tag);
         results.push(...globalSkills.map(mapRecord));
     }
 
-    if (projectDb && (!scope || scope === "all" || scope === "project")) {
-        const projectSkills = getAllSkills(projectDb, "project", tag);
+    if (cwd && (!scope || scope === "all" || scope === "project")) {
+        const projectSkills = getAllSkills(db, "project", cwd, tag);
         results.push(...projectSkills.map(mapRecord));
     }
 

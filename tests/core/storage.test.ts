@@ -7,7 +7,6 @@ import {
     getSkillFilePath,
     ensureProjectDirs,
     isProjectInitialized,
-    addToGitignore,
 } from "../../src/core/storage.js";
 
 describe("storage", () => {
@@ -26,7 +25,6 @@ describe("storage", () => {
             const paths = getProjectPaths("/my/project");
             expect(paths.projectDir).toBe("/my/project/.skill-depot");
             expect(paths.projectSkillsDir).toBe("/my/project/.skill-depot/skills");
-            expect(paths.projectDbPath).toBe("/my/project/.skill-depot/index.db");
         });
     });
 
@@ -66,42 +64,6 @@ describe("storage", () => {
         it("should return true after init", async () => {
             await ensureProjectDirs(tmpDir);
             expect(isProjectInitialized(tmpDir)).toBe(true);
-        });
-    });
-
-    describe("addToGitignore", () => {
-        it("should create .gitignore with entry if none exists", async () => {
-            const result = await addToGitignore(tmpDir);
-            expect(result).toBe(true);
-
-            const content = await fs.readFile(path.join(tmpDir, ".gitignore"), "utf-8");
-            expect(content).toContain(".skill-depot/index.db");
-        });
-
-        it("should append to existing .gitignore", async () => {
-            await fs.writeFile(path.join(tmpDir, ".gitignore"), "node_modules/\n");
-
-            const result = await addToGitignore(tmpDir);
-            expect(result).toBe(true);
-
-            const content = await fs.readFile(path.join(tmpDir, ".gitignore"), "utf-8");
-            expect(content).toContain("node_modules/");
-            expect(content).toContain(".skill-depot/index.db");
-        });
-
-        it("should not duplicate if entry already exists", async () => {
-            await fs.writeFile(
-                path.join(tmpDir, ".gitignore"),
-                "node_modules/\n.skill-depot/index.db\n"
-            );
-
-            const result = await addToGitignore(tmpDir);
-            expect(result).toBe(true);
-
-            const content = await fs.readFile(path.join(tmpDir, ".gitignore"), "utf-8");
-            // Should only appear once
-            const matches = content.match(/\.skill-depot\/index\.db/g);
-            expect(matches).toHaveLength(1);
         });
     });
 });

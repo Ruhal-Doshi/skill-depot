@@ -3,7 +3,7 @@ import inquirer from "inquirer";
 import ora from "ora";
 import chalk from "chalk";
 
-import { ensureGlobalDirs, ensureProjectDirs, getGlobalPaths, getProjectPaths, addToGitignore } from "../core/storage.js";
+import { ensureGlobalDirs, ensureProjectDirs, getGlobalPaths, getProjectPaths } from "../core/storage.js";
 import { createDatabase, insertSkill, getSkillByName } from "../core/database.js";
 import { generateEmbedding, isModelDownloaded } from "../core/embeddings.js";
 import { readSkillFile, copySkillFile, getSkillNameFromPath, hashContent, deleteSkillFile, listSkillFiles, fileExists } from "../core/file-manager.js";
@@ -30,16 +30,6 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     const globalPaths = await ensureGlobalDirs();
     const projectPaths = await ensureProjectDirs(projectRoot);
     spinner.succeed("Directories created");
-
-    // ─── 2. Auto-add .gitignore entry ──────────────────────────
-    const gitignoreAdded = await addToGitignore(projectRoot);
-    if (gitignoreAdded) {
-        log.success("Added .skill-depot/index.db to .gitignore");
-    } else {
-        log.warn(
-            "Could not update .gitignore — please manually add: .skill-depot/index.db"
-        );
-    }
 
     // ─── 3. Discover existing agent skills ─────────────────────
     log.heading("Discovering existing skills");
@@ -129,7 +119,6 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
     // ─── 8. Index all skills ──────────────────────────────────
     const globalDb = createDatabase(globalPaths.globalDbPath);
-    const projectDb = createDatabase(projectPaths.projectDbPath);
 
     const globalFiles = await listSkillFiles(globalPaths.globalSkillsDir);
     const projectFiles = await listSkillFiles(projectPaths.projectSkillsDir);
@@ -140,12 +129,12 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
         let indexed = 0;
         for (const filePath of globalFiles) {
-            await indexFile(globalDb, filePath, "global");
+            await indexFile(globalDb, filePath, "global", "");
             indexed++;
             indexSpinner.text = `Indexing skills... ${indexed}/${totalFiles}`;
         }
         for (const filePath of projectFiles) {
-            await indexFile(projectDb, filePath, "project");
+            await indexFile(globalDb, filePath, "project", projectRoot);
             indexed++;
             indexSpinner.text = `Indexing skills... ${indexed}/${totalFiles}`;
         }
@@ -156,7 +145,6 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     }
 
     globalDb.close();
-    projectDb.close();
 
     // ─── 9. Save config ────────────────────────────────────────
     const config: SkillDepotConfig = {
@@ -180,7 +168,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
                 {
                     "skill-depot": {
                         command: "npx",
-                        args: ["skill-depot", "serve", "--project", projectRoot],
+                        args: ["skill-depot", "serve"],
                     },
                 },
                 null,
@@ -259,7 +247,8 @@ async function selectAndCopySkills(
 async function indexFile(
     db: ReturnType<typeof createDatabase>,
     filePath: string,
-    scope: "global" | "project"
+    scope: "global" | "project",
+    projectPath: string
 ): Promise<void> {
     const parsed = await readSkillFile(filePath);
     let name = parsed.frontmatter.name || getSkillNameFromPath(filePath);
@@ -285,6 +274,7 @@ async function indexFile(
         contentHash,
         filePath,
         scope,
+        projectPath,
         snippet,
         indexableText,
         embedding,

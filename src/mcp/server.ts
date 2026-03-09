@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v4";
 import Database from "better-sqlite3";
 
-import { createDatabase, insertSkill, updateSkill, deleteSkill, getSkillByName, clearAllSkills } from "../core/database.js";
+import { createDatabase, insertSkill, updateSkill, deleteSkill, getSkillByName, clearSkillsByScope } from "../core/database.js";
 import { generateEmbedding } from "../core/embeddings.js";
 import { searchSkills, listSkills } from "../core/search.js";
 import { readSkillFile, writeSkillFile, deleteSkillFile, listSkillFiles, hashContent, getSkillNameFromPath } from "../core/file-manager.js";
@@ -13,8 +13,6 @@ import { VERSION } from "../utils/version.js";
 
 interface ServerContext {
     globalDb: Database.Database;
-    projectDb: Database.Database | null;
-    projectRoot: string | null;
 }
 
 /**
@@ -40,14 +38,16 @@ export function createSkillDepotServer(projectRoot?: string): {
                 "Search for relevant skills using semantic search. Returns metadata and snippets — use skill_read for full content.",
             inputSchema: {
                 query: z.string().describe("Search query describing the skill you need"),
+                cwd: z.string().describe("Absolute path of your current working directory"),
                 topK: z.number().optional().default(5).describe("Number of results to return (default: 5)"),
                 scope: z.enum(["all", "global", "project"]).optional().default("all").describe("Search scope"),
             },
         },
-        async ({ query, topK, scope }) => {
-            const results = await searchSkills(ctx.globalDb, ctx.projectDb, query, {
+        async ({ query, cwd, topK, scope }) => {
+            const results = await searchSkills(ctx.globalDb, query, {
                 topK,
                 scope,
+                cwd,
             });
 
             return {
@@ -82,16 +82,11 @@ export function createSkillDepotServer(projectRoot?: string): {
             description: "Read the full content of a skill by name.",
             inputSchema: {
                 name: z.string().describe("Name of the skill to read"),
+                cwd: z.string().describe("Absolute path of your current working directory"),
             },
         },
-        async ({ name }) => {
-            // Check both databases
-            const globalRecord = getSkillByName(ctx.globalDb, name);
-            const projectRecord = ctx.projectDb
-                ? getSkillByName(ctx.projectDb, name)
-                : null;
-
-            const record = projectRecord || globalRecord;
+        async ({ name, cwd }) => {
+            const record = getSkillByName(ctx.globalDb, name);
             if (!record) {
                 return {
                     content: [
@@ -147,11 +142,12 @@ export function createSkillDepotServer(projectRoot?: string): {
                 scope: z.enum(["global", "project"]).default("global").describe("Where to save the skill"),
                 tags: z.array(z.string()).optional().default([]).describe("Tags for categorization"),
                 keywords: z.array(z.string()).optional().default([]).describe("Keywords to improve search relevance"),
+                cwd: z.string().describe("Absolute path of your current working directory"),
             },
         },
-        async ({ name, description, content, scope, tags, keywords }) => {
-            const db = scope === "project" && ctx.projectDb ? ctx.projectDb : ctx.globalDb;
-            const actualScope = scope === "project" && ctx.projectDb ? "project" : "global";
+        async ({ name, description, content, scope, tags, keywords, cwd }) => {
+            const db = ctx.globalDb;
+            const actualScope = scope;
 
             // Check if skill already exists
             const existing = getSkillByName(db, name);
@@ -168,7 +164,7 @@ export function createSkillDepotServer(projectRoot?: string): {
             }
 
             const frontmatter = { name, description, tags: tags || [], keywords: keywords || [] };
-            const filePath = getSkillFilePath(name, actualScope, ctx.projectRoot || undefined);
+            const filePath = getSkillFilePath(name, actualScope, cwd);
 
             // Write the file
             await writeSkillFile(filePath, frontmatter, content);
@@ -187,6 +183,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                 contentHash,
                 filePath,
                 scope: actualScope,
+                projectPath: actualScope === "global" ? "" : cwd,
                 snippet,
                 indexableText,
                 embedding,
@@ -214,14 +211,12 @@ export function createSkillDepotServer(projectRoot?: string): {
                 description: z.string().optional().describe("Updated description"),
                 tags: z.array(z.string()).optional().describe("Updated tags"),
                 keywords: z.array(z.string()).optional().describe("Updated keywords"),
+                cwd: z.string().describe("Absolute path of your current working directory"),
             },
         },
-        async ({ name, content, description, tags, keywords }) => {
-            // Find the skill in either database
-            const globalRecord = getSkillByName(ctx.globalDb, name);
-            const projectRecord = ctx.projectDb ? getSkillByName(ctx.projectDb, name) : null;
-            const record = projectRecord || globalRecord;
-            const db = projectRecord ? ctx.projectDb! : ctx.globalDb;
+        async ({ name, content, description, tags, keywords, cwd }) => {
+            const record = getSkillByName(ctx.globalDb, name);
+            const db = ctx.globalDb;
 
             if (!record) {
                 return {
@@ -279,13 +274,12 @@ export function createSkillDepotServer(projectRoot?: string): {
             description: "Delete a skill file and remove it from the index.",
             inputSchema: {
                 name: z.string().describe("Name of the skill to delete"),
+                cwd: z.string().describe("Absolute path of your current working directory"),
             },
         },
-        async ({ name }) => {
-            const globalRecord = getSkillByName(ctx.globalDb, name);
-            const projectRecord = ctx.projectDb ? getSkillByName(ctx.projectDb, name) : null;
-            const record = projectRecord || globalRecord;
-            const db = projectRecord ? ctx.projectDb! : ctx.globalDb;
+        async ({ name, cwd }) => {
+            const record = getSkillByName(ctx.globalDb, name);
+            const db = ctx.globalDb;
 
             if (!record) {
                 return {
@@ -318,19 +312,21 @@ export function createSkillDepotServer(projectRoot?: string): {
             description: "Rebuild the search index by re-reading and re-embedding all skill files.",
             inputSchema: {
                 scope: z.enum(["all", "global", "project"]).optional().default("all").describe("Which scope to reindex"),
+                cwd: z.string().describe("Absolute path of your current working directory"),
             },
         },
-        async ({ scope }) => {
+        async ({ scope, cwd }) => {
             let indexed = 0;
             const errors: string[] = [];
 
             const reindexDb = async (
                 db: Database.Database,
                 skillsDir: string,
-                dbScope: "global" | "project"
+                dbScope: "global" | "project",
+                projectPath: string
             ) => {
                 // Clear existing data for this scope
-                clearAllSkills(db);
+                clearSkillsByScope(db, dbScope, projectPath);
 
                 // List all skill files
                 const files = await listSkillFiles(skillsDir);
@@ -352,6 +348,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                             contentHash,
                             filePath,
                             scope: dbScope,
+                            projectPath: dbScope === "global" ? "" : projectPath,
                             snippet,
                             indexableText,
                             embedding,
@@ -365,12 +362,12 @@ export function createSkillDepotServer(projectRoot?: string): {
 
             if (scope === "all" || scope === "global") {
                 const { globalSkillsDir } = getGlobalPaths();
-                await reindexDb(ctx.globalDb, globalSkillsDir, "global");
+                await reindexDb(ctx.globalDb, globalSkillsDir, "global", "");
             }
 
-            if (ctx.projectDb && ctx.projectRoot && (scope === "all" || scope === "project")) {
-                const { projectSkillsDir } = getProjectPaths(ctx.projectRoot);
-                await reindexDb(ctx.projectDb, projectSkillsDir, "project");
+            if (scope === "all" || scope === "project") {
+                const { projectSkillsDir } = getProjectPaths(cwd);
+                await reindexDb(ctx.globalDb, projectSkillsDir, "project", cwd);
             }
 
             return {
@@ -392,10 +389,11 @@ export function createSkillDepotServer(projectRoot?: string): {
             inputSchema: {
                 scope: z.enum(["all", "global", "project"]).optional().default("all").describe("Filter by scope"),
                 tag: z.string().optional().describe("Filter by tag"),
+                cwd: z.string().describe("Absolute path of your current working directory"),
             },
         },
-        async ({ scope, tag }) => {
-            const results = listSkills(ctx.globalDb, ctx.projectDb, scope, tag);
+        async ({ scope, tag, cwd }) => {
+            const results = listSkills(ctx.globalDb, scope, cwd, tag);
 
             return {
                 content: [
@@ -421,18 +419,8 @@ export function createSkillDepotServer(projectRoot?: string): {
         const globalPaths = await ensureGlobalDirs();
         const globalDb = createDatabase(globalPaths.globalDbPath);
 
-        let projectDb: Database.Database | null = null;
-        const resolvedProjectRoot = projectRoot || null;
-
-        if (resolvedProjectRoot) {
-            const projectPaths = await ensureProjectDirs(resolvedProjectRoot);
-            projectDb = createDatabase(projectPaths.projectDbPath);
-        }
-
         ctx = {
             globalDb,
-            projectDb,
-            projectRoot: resolvedProjectRoot,
         };
 
         // Connect via stdio
@@ -442,13 +430,11 @@ export function createSkillDepotServer(projectRoot?: string): {
         // Graceful shutdown
         process.on("SIGINT", () => {
             globalDb.close();
-            projectDb?.close();
             process.exit(0);
         });
 
         process.on("SIGTERM", () => {
             globalDb.close();
-            projectDb?.close();
             process.exit(0);
         });
     };

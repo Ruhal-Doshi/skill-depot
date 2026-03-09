@@ -11,7 +11,7 @@ import {
     getSkillById,
     getAllSkills,
     searchByVector,
-    clearAllSkills,
+    clearSkillsByScope,
     getSkillCount,
     type SkillInsert,
 } from "../../src/core/database.js";
@@ -41,6 +41,7 @@ function makeSkill(
         contentHash: "abc123",
         filePath: `/path/to/${name}.md`,
         scope: "global",
+        projectPath: overrides.scope === "project" ? "/project/path" : "",
         snippet: `Snippet for ${name}`,
         indexableText: `${name} test skill`,
         embedding: makeEmbedding(name.charCodeAt(0)),
@@ -211,7 +212,7 @@ describe("database", () => {
             insertSkill(db, makeSkill("tagged", { tags: ["deployment", "vercel"] }));
             insertSkill(db, makeSkill("untagged", { tags: ["other"] }));
 
-            const filtered = getAllSkills(db, undefined, "deployment");
+            const filtered = getAllSkills(db, undefined, undefined, "deployment");
             expect(filtered).toHaveLength(1);
             expect(filtered[0].name).toBe("tagged");
 
@@ -263,14 +264,14 @@ describe("database", () => {
         });
     });
 
-    describe("clearAllSkills", () => {
+    describe("clearSkillsByScope", () => {
         it("should remove all skills and vectors", () => {
             const db = createDatabase(dbPath);
             insertSkill(db, makeSkill("a"));
             insertSkill(db, makeSkill("b"));
             expect(getSkillCount(db)).toBe(2);
 
-            clearAllSkills(db);
+            clearSkillsByScope(db, "global");
 
             expect(getSkillCount(db)).toBe(0);
             expect(getAllSkills(db)).toEqual([]);

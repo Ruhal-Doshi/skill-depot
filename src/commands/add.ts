@@ -20,7 +20,7 @@ export async function addCommand(file: string, options: AddOptions): Promise<voi
     const globalPaths = await ensureGlobalDirs();
     const projectPaths = scope === "project" ? await ensureProjectDirs(projectRoot) : null;
 
-    const dbPath = scope === "global" ? globalPaths.globalDbPath : projectPaths!.projectDbPath;
+    const dbPath = globalPaths.globalDbPath;
     const db = createDatabase(dbPath);
 
     try {
@@ -55,6 +55,7 @@ export async function addCommand(file: string, options: AddOptions): Promise<voi
             contentHash,
             filePath: destPath,
             scope,
+            projectPath: scope === "global" ? "" : projectRoot,
             snippet,
             indexableText,
             embedding,

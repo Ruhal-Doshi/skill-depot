@@ -33,11 +33,9 @@ program
 program
     .command("serve")
     .description("Start the MCP server in foreground (stdio)")
-    .option("--project <path>", "Project root directory", ".")
-    .action(async (options) => {
+    .action(async () => {
         try {
-            const projectRoot = path.resolve(options.project);
-            const { start } = createSkillDepotServer(projectRoot);
+            const { start } = createSkillDepotServer();
             await start();
         } catch (err) {
             log.error(`Server failed: ${(err as Error).message}`);
@@ -49,17 +47,15 @@ program
 program
     .command("start")
     .description("Start skill-depot as a background daemon")
-    .option("--project <path>", "Project root directory", ".")
-    .action(async (options) => {
+    .action(async () => {
         const { running } = await isDaemonRunning();
         if (running) {
             log.warn("skill-depot daemon is already running");
             return;
         }
 
-        const projectRoot = path.resolve(options.project);
         const scriptPath = new URL(import.meta.url).pathname;
-        const { pid } = await startDaemon([scriptPath, "serve", "--project", projectRoot]);
+        const { pid } = await startDaemon([scriptPath, "serve"]);
         log.success(`skill-depot daemon started (PID: ${pid})`);
     });
 
@@ -93,12 +89,10 @@ program
 program
     .command("restart")
     .description("Restart the skill-depot daemon")
-    .option("--project <path>", "Project root directory", ".")
-    .action(async (options) => {
+    .action(async () => {
         await stopDaemon();
-        const projectRoot = path.resolve(options.project);
         const scriptPath = new URL(import.meta.url).pathname;
-        const { pid } = await startDaemon([scriptPath, "serve", "--project", projectRoot]);
+        const { pid } = await startDaemon([scriptPath, "serve"]);
         log.success(`skill-depot daemon restarted (PID: ${pid})`);
     });
 

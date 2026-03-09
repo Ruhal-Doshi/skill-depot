@@ -10,7 +10,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import os from "node:os";
 
-import { createDatabase, insertSkill, updateSkill, deleteSkill, getSkillByName, clearAllSkills, getSkillCount } from "../../src/core/database.js";
+import { createDatabase, insertSkill, updateSkill, deleteSkill, getSkillByName, clearSkillsByScope, getSkillCount } from "../../src/core/database.js";
 import { generateBM25Embedding } from "../../src/core/embeddings.js";
 import { searchSkills, listSkills } from "../../src/core/search.js";
 import { readSkillFile, writeSkillFile, deleteSkillFile, listSkillFiles, hashContent, getSkillNameFromPath } from "../../src/core/file-manager.js";
@@ -108,6 +108,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 contentHash,
                 filePath,
                 scope,
+                projectPath: scope === "global" ? "" : ctx.projectDir,
                 snippet,
                 indexableText,
                 embedding,
@@ -142,6 +143,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 contentHash: "abc",
                 filePath,
                 scope: "global",
+                projectPath: "",
                 snippet: "test",
                 indexableText: "test",
                 embedding,
@@ -157,6 +159,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                     contentHash: "def",
                     filePath: filePath + "2",
                     scope: "global",
+                    projectPath: "",
                     snippet: "test2",
                     indexableText: "test2",
                     embedding,
@@ -223,6 +226,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                     contentHash: hashContent(body),
                     filePath,
                     scope: s.scope,
+                    projectPath: s.scope === "global" ? "" : ctx.projectDir,
                     snippet,
                     indexableText,
                     embedding,
@@ -231,9 +235,10 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
         });
 
         it("should return ranked results for a query", async () => {
-            const results = await searchSkills(ctx.globalDb, ctx.projectDb, "deploy vercel nextjs", {
+            const results = await searchSkills(ctx.globalDb, "deploy vercel nextjs", {
                 topK: 5,
                 scope: "all",
+                cwd: ctx.projectDir,
             });
 
             expect(results.length).toBeGreaterThan(0);
@@ -243,11 +248,13 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
         });
 
         it("should respect scope filter", async () => {
-            const globalResults = await searchSkills(ctx.globalDb, ctx.projectDb, "deploy", {
+            const globalResults = await searchSkills(ctx.globalDb, "deploy", {
                 scope: "global",
+                cwd: ctx.projectDir,
             });
-            const projectResults = await searchSkills(ctx.globalDb, ctx.projectDb, "auth", {
+            const projectResults = await searchSkills(ctx.globalDb, "auth", {
                 scope: "project",
+                cwd: ctx.projectDir,
             });
 
             for (const r of globalResults) {
@@ -259,8 +266,9 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
         });
 
         it("should search across both scopes by default", async () => {
-            const results = await searchSkills(ctx.globalDb, ctx.projectDb, "setup", {
+            const results = await searchSkills(ctx.globalDb, "setup", {
                 topK: 10,
+                cwd: ctx.projectDir,
             });
 
             // Should include results from both databases
@@ -287,6 +295,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 contentHash: hashContent(body),
                 filePath,
                 scope: "global",
+                projectPath: "",
                 snippet: "A readable skill",
                 indexableText: generateIndexableText(frontmatter, body),
                 embedding: generateEmbedding("readable skill test"),
@@ -316,16 +325,18 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
             insertSkill(ctx.globalDb, {
                 name, description: "global version", tags: [], keywords: [],
                 contentHash: "g", filePath: globalPath, scope: "global",
+                projectPath: "",
                 snippet: "g", indexableText: "g", embedding,
             });
-            insertSkill(ctx.projectDb, {
+            insertSkill(ctx.globalDb, {
                 name, description: "project version", tags: [], keywords: [],
                 contentHash: "p", filePath: projectPath, scope: "project",
+                projectPath: ctx.projectDir,
                 snippet: "p", indexableText: "p", embedding,
             });
 
             // Simulate priority: project > global
-            const projectRecord = getSkillByName(ctx.projectDb, name);
+            const projectRecord = getSkillByName(ctx.globalDb, name, ctx.projectDir);
             const globalRecord = getSkillByName(ctx.globalDb, name);
             const record = projectRecord || globalRecord;
 
@@ -351,6 +362,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 contentHash: hashContent(originalBody),
                 filePath,
                 scope: "global",
+                projectPath: "",
                 snippet: "Original desc",
                 indexableText: generateIndexableText(frontmatter, originalBody),
                 embedding: generateEmbedding("original"),
@@ -416,6 +428,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 contentHash: hashContent(body),
                 filePath,
                 scope: "global",
+                projectPath: "",
                 snippet: "temp",
                 indexableText: "temp",
                 embedding: generateEmbedding("temp"),
@@ -444,15 +457,17 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
             insertSkill(ctx.globalDb, {
                 name: "global-a", description: "A", tags: ["tag1"], keywords: [],
                 contentHash: "a", filePath: "/a.md", scope: "global",
+                projectPath: "",
                 snippet: "a", indexableText: "a", embedding,
             });
-            insertSkill(ctx.projectDb, {
+            insertSkill(ctx.globalDb, {
                 name: "project-b", description: "B", tags: ["tag2"], keywords: [],
                 contentHash: "b", filePath: "/b.md", scope: "project",
+                projectPath: ctx.projectDir,
                 snippet: "b", indexableText: "b", embedding,
             });
 
-            const all = listSkills(ctx.globalDb, ctx.projectDb, "all");
+            const all = listSkills(ctx.globalDb, "all", ctx.projectDir);
             expect(all).toHaveLength(2);
             expect(all.map((s) => s.name).sort()).toEqual(["global-a", "project-b"]);
         });
@@ -474,7 +489,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
             expect(getSkillCount(ctx.globalDb)).toBe(0);
 
             // Simulate skill_reindex handler
-            clearAllSkills(ctx.globalDb);
+            clearSkillsByScope(ctx.globalDb, "global", "");
             const skillFiles = await listSkillFiles(ctx.globalSkillsDir);
 
             for (const filePath of skillFiles) {
@@ -492,6 +507,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                     contentHash: hashContent(parsed.raw),
                     filePath,
                     scope: "global",
+                    projectPath: "",
                     snippet,
                     indexableText,
                     embedding,
@@ -502,7 +518,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
             expect(getSkillCount(ctx.globalDb)).toBe(3);
 
             // Verify they're searchable
-            const results = await searchSkills(ctx.globalDb, null, "alpha", { topK: 1 });
+            const results = await searchSkills(ctx.globalDb, "alpha", { topK: 1, cwd: ctx.projectDir });
             expect(results.length).toBeGreaterThan(0);
             expect(results[0].name).toBe("alpha");
         });
@@ -527,11 +543,12 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
             insertSkill(ctx.globalDb, {
                 name, description, tags, keywords: [],
                 contentHash: hashContent(content), filePath, scope: "global",
+                projectPath: "",
                 snippet, indexableText, embedding,
             });
 
             // 2. SEARCH — should find the skill
-            const searchResults = await searchSkills(ctx.globalDb, ctx.projectDb, "lifecycle test step", { topK: 3 });
+            const searchResults = await searchSkills(ctx.globalDb, "lifecycle test step", { topK: 3, cwd: ctx.projectDir });
             expect(searchResults.length).toBeGreaterThan(0);
             const found = searchResults.find((r) => r.name === name);
             expect(found).toBeDefined();

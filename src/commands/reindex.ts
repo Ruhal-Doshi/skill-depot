@@ -1,6 +1,6 @@
 import ora from "ora";
 import { ensureGlobalDirs, ensureProjectDirs, getGlobalPaths, getProjectPaths } from "../core/storage.js";
-import { createDatabase, clearAllSkills, insertSkill } from "../core/database.js";
+import { createDatabase, clearSkillsByScope, insertSkill } from "../core/database.js";
 import { generateEmbedding } from "../core/embeddings.js";
 import { readSkillFile, listSkillFiles, hashContent, getSkillNameFromPath } from "../core/file-manager.js";
 import { generateIndexableText, generateSnippet } from "../core/frontmatter.js";
@@ -18,7 +18,7 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
             const files = await listSkillFiles(globalPaths.globalSkillsDir);
             const spinner = ora(`Reindexing ${files.length} global skills...`).start();
 
-            clearAllSkills(globalDb);
+            clearSkillsByScope(globalDb, "global");
 
             for (const filePath of files) {
                 try {
@@ -37,6 +37,7 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
                         contentHash,
                         filePath,
                         scope: "global",
+                        projectPath: "",
                         snippet,
                         indexableText,
                         embedding,
@@ -56,13 +57,16 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
     if (scope === "all" || scope === "project") {
         try {
             const projectPaths = await ensureProjectDirs(projectRoot);
-            const projectDb = createDatabase(projectPaths.projectDbPath);
+
+            // Project mode queries from global DB too now
+            const globalPaths = await ensureGlobalDirs();
+            const globalDb = createDatabase(globalPaths.globalDbPath);
 
             try {
                 const files = await listSkillFiles(projectPaths.projectSkillsDir);
                 const spinner = ora(`Reindexing ${files.length} project skills...`).start();
 
-                clearAllSkills(projectDb);
+                clearSkillsByScope(globalDb, "project", projectRoot);
 
                 for (const filePath of files) {
                     try {
@@ -73,7 +77,7 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
                         const embedding = await generateEmbedding(indexableText);
                         const contentHash = hashContent(parsed.raw);
 
-                        insertSkill(projectDb, {
+                        insertSkill(globalDb, {
                             name,
                             description: parsed.frontmatter.description,
                             tags: parsed.frontmatter.tags,
@@ -81,6 +85,7 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
                             contentHash,
                             filePath,
                             scope: "project",
+                            projectPath: projectRoot,
                             snippet,
                             indexableText,
                             embedding,
@@ -93,7 +98,7 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
 
                 spinner.succeed(`Reindexed ${files.length} project skills`);
             } finally {
-                projectDb.close();
+                globalDb.close();
             }
         } catch {
             log.info("No project-level skill-depot found in current directory");
