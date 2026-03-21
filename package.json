@@ -13,7 +13,7 @@
     "dev": "tsup --watch",
     "test": "vitest",
     "test:run": "vitest run",
-    "lint": "tsc --noEmit",
+    "lint": "tsc --noEmit -p tsconfig.check.json",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [

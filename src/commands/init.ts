@@ -128,18 +128,30 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
         const indexSpinner = ora(`Indexing ${totalFiles} skills...`).start();
 
         let indexed = 0;
+        let skipped = 0;
         for (const filePath of globalFiles) {
-            await indexFile(globalDb, filePath, "global", "");
-            indexed++;
-            indexSpinner.text = `Indexing skills... ${indexed}/${totalFiles}`;
+            try {
+                await indexFile(globalDb, filePath, "global", "");
+                indexed++;
+            } catch (err) {
+                log.warn(`Skipped ${filePath}: ${(err as Error).message}`);
+                skipped++;
+            }
+            indexSpinner.text = `Indexing skills... ${indexed + skipped}/${totalFiles}`;
         }
         for (const filePath of projectFiles) {
-            await indexFile(globalDb, filePath, "project", projectRoot);
-            indexed++;
-            indexSpinner.text = `Indexing skills... ${indexed}/${totalFiles}`;
+            try {
+                await indexFile(globalDb, filePath, "project", projectRoot);
+                indexed++;
+            } catch (err) {
+                log.warn(`Skipped ${filePath}: ${(err as Error).message}`);
+                skipped++;
+            }
+            indexSpinner.text = `Indexing skills... ${indexed + skipped}/${totalFiles}`;
         }
 
-        indexSpinner.succeed(`Indexed ${totalFiles} skills`);
+        const skippedMsg = skipped > 0 ? ` (${skipped} skipped)` : "";
+        indexSpinner.succeed(`Indexed ${indexed} skills${skippedMsg}`);
     } else {
         log.info("No skills to index yet");
     }
@@ -269,9 +281,9 @@ async function indexFile(
 
     insertSkill(db, {
         name,
-        description: parsed.frontmatter.description,
-        tags: parsed.frontmatter.tags,
-        keywords: parsed.frontmatter.keywords,
+        description: parsed.frontmatter.description ?? "",
+        tags: parsed.frontmatter.tags ?? [],
+        keywords: parsed.frontmatter.keywords ?? [],
         contentHash,
         filePath,
         scope,
@@ -279,6 +291,7 @@ async function indexFile(
         snippet,
         overview,
         indexableText,
+        related: parsed.frontmatter.related ?? [],
         embedding,
     });
 }

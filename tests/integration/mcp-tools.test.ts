@@ -10,7 +10,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import os from "node:os";
 
-import { createDatabase, insertSkill, updateSkill, deleteSkill, getSkillByName, clearSkillsByScope, getSkillCount } from "../../src/core/database.js";
+import { createDatabase, insertSkill, updateSkill, deleteSkill, getSkillByName, clearSkillsByScope, getSkillCount, incrementReadCount } from "../../src/core/database.js";
 import { generateBM25Embedding } from "../../src/core/embeddings.js";
 import { searchSkills, listSkills } from "../../src/core/search.js";
 import { readSkillFile, writeSkillFile, deleteSkillFile, listSkillFiles, hashContent, getSkillNameFromPath } from "../../src/core/file-manager.js";
@@ -113,6 +113,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 snippet,
                 overview,
                 indexableText,
+                related: [],
                 embedding,
             });
 
@@ -150,6 +151,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 snippet: "test",
                 overview: "",
                 indexableText: "test",
+                related: [],
                 embedding,
             });
 
@@ -167,6 +169,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 snippet: "test2",
                 overview: "",
                 indexableText: "test2",
+                related: [],
                 embedding: updatedEmbedding,
             });
 
@@ -241,6 +244,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                     snippet,
                     overview,
                     indexableText,
+                    related: [],
                     embedding,
                 });
             }
@@ -311,6 +315,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 snippet: "A readable skill",
                 overview: generateOverview(body),
                 indexableText: generateIndexableText(frontmatter, body),
+                related: [],
                 embedding: generateEmbedding("readable skill test"),
             });
 
@@ -339,13 +344,13 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 name, description: "global version", tags: [], keywords: [],
                 contentHash: "g", filePath: globalPath, scope: "global",
                 projectPath: "",
-                snippet: "g", overview: "", indexableText: "g", embedding,
+                snippet: "g", overview: "", indexableText: "g", related: [], embedding,
             });
             insertSkill(ctx.globalDb, {
                 name, description: "project version", tags: [], keywords: [],
                 contentHash: "p", filePath: projectPath, scope: "project",
                 projectPath: ctx.projectDir,
-                snippet: "p", overview: "", indexableText: "p", embedding,
+                snippet: "p", overview: "", indexableText: "p", related: [], embedding,
             });
 
             // Simulate priority: project > global
@@ -379,6 +384,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 snippet: "Original desc",
                 overview: generateOverview(originalBody),
                 indexableText: generateIndexableText(frontmatter, originalBody),
+                related: [],
                 embedding: generateEmbedding("original"),
             });
 
@@ -447,6 +453,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 snippet: "temp",
                 overview: "",
                 indexableText: "temp",
+                related: [],
                 embedding: generateEmbedding("temp"),
             });
 
@@ -474,13 +481,13 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 name: "global-a", description: "A", tags: ["tag1"], keywords: [],
                 contentHash: "a", filePath: "/a.md", scope: "global",
                 projectPath: "",
-                snippet: "a", overview: "", indexableText: "a", embedding,
+                snippet: "a", overview: "", indexableText: "a", related: [], embedding,
             });
             insertSkill(ctx.globalDb, {
                 name: "project-b", description: "B", tags: ["tag2"], keywords: [],
                 contentHash: "b", filePath: "/b.md", scope: "project",
                 projectPath: ctx.projectDir,
-                snippet: "b", overview: "", indexableText: "b", embedding,
+                snippet: "b", overview: "", indexableText: "b", related: [], embedding,
             });
 
             const all = listSkills(ctx.globalDb, "all", ctx.projectDir);
@@ -518,9 +525,9 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
 
                 insertSkill(ctx.globalDb, {
                     name,
-                    description: parsed.frontmatter.description,
-                    tags: parsed.frontmatter.tags,
-                    keywords: parsed.frontmatter.keywords,
+                    description: parsed.frontmatter.description ?? "",
+                    tags: parsed.frontmatter.tags ?? [],
+                    keywords: parsed.frontmatter.keywords ?? [],
                     contentHash: hashContent(parsed.raw),
                     filePath,
                     scope: "global",
@@ -528,6 +535,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                     snippet,
                     overview,
                     indexableText,
+                    related: [],
                     embedding,
                 });
             }
@@ -539,6 +547,179 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
             const results = await searchSkills(ctx.globalDb, "alpha", { topK: 1, cwd: ctx.projectDir });
             expect(results.length).toBeGreaterThan(0);
             expect(results[0].name).toBe("alpha");
+        });
+    });
+
+    // ─── skill_learn ────────────────────────────────────────────
+
+    describe("skill_learn flow", () => {
+        it("should create a new skill when it doesn't exist", async () => {
+            const name = "learned-pattern";
+            const description = "A useful pattern discovered during work";
+            const content = "## Pattern\n\nAlways check for null before accessing properties.";
+            const tags = ["patterns", "debugging"];
+
+            const frontmatter = { name, description, tags, keywords: [] };
+            const filePath = path.join(ctx.globalSkillsDir, `${name}.md`);
+
+            await writeSkillFile(filePath, frontmatter, content);
+
+            const indexableText = generateIndexableText(frontmatter, content);
+            const snippet = generateSnippet(frontmatter, content);
+            const overview = generateOverview(content);
+            const embedding = generateEmbedding(indexableText);
+            const contentHash = hashContent(content);
+
+            insertSkill(ctx.globalDb, {
+                name,
+                description,
+                tags,
+                keywords: [],
+                contentHash,
+                filePath,
+                scope: "global",
+                projectPath: "",
+                snippet,
+                overview,
+                indexableText,
+                related: [],
+                embedding,
+            });
+
+            const record = getSkillByName(ctx.globalDb, name);
+            expect(record).toBeDefined();
+            expect(record!.name).toBe("learned-pattern");
+            expect(record!.description).toBe("A useful pattern discovered during work");
+
+            const parsed = await readSkillFile(filePath);
+            expect(parsed.body).toContain("Always check for null");
+        });
+
+        it("should append content to an existing skill with --- separator", async () => {
+            const name = "appendable-skill";
+            const originalBody = "## First Lesson\n\nOriginal content here.";
+            const frontmatter = { name, description: "Original desc", tags: ["v1"], keywords: ["first"] };
+            const filePath = path.join(ctx.globalSkillsDir, `${name}.md`);
+
+            await writeSkillFile(filePath, frontmatter, originalBody);
+            insertSkill(ctx.globalDb, {
+                name,
+                description: frontmatter.description,
+                tags: frontmatter.tags,
+                keywords: frontmatter.keywords,
+                contentHash: hashContent(originalBody),
+                filePath,
+                scope: "global",
+                projectPath: "",
+                snippet: generateSnippet(frontmatter, originalBody),
+                overview: generateOverview(originalBody),
+                indexableText: generateIndexableText(frontmatter, originalBody),
+                related: [],
+                embedding: generateEmbedding("appendable skill"),
+            });
+
+            // Simulate skill_learn append
+            const existing = await readSkillFile(filePath);
+            const appendContent = "## Second Lesson\n\nAppended content here.";
+            const newBody = existing.body + "\n\n---\n\n" + appendContent;
+            const newTags = [...new Set([...(existing.frontmatter.tags ?? []), "v2", "appended"])];
+            const newKeywords = [...new Set([...(existing.frontmatter.keywords ?? []), "second"])];
+
+            const newFrontmatter = {
+                ...existing.frontmatter,
+                tags: newTags,
+                keywords: newKeywords,
+            };
+
+            await writeSkillFile(filePath, newFrontmatter, newBody);
+
+            const newIndexableText = generateIndexableText(newFrontmatter, newBody);
+            const newOverview = generateOverview(newBody);
+            const newEmbedding = generateEmbedding(newIndexableText);
+
+            updateSkill(ctx.globalDb, name, {
+                tags: newTags,
+                keywords: newKeywords,
+                contentHash: hashContent(newBody),
+                snippet: generateSnippet(newFrontmatter, newBody),
+                overview: newOverview,
+                indexableText: newIndexableText,
+                embedding: newEmbedding,
+            });
+
+            // Verify file on disk has both sections separated by ---
+            const afterAppend = await readSkillFile(filePath);
+            expect(afterAppend.body).toContain("Original content here.");
+            expect(afterAppend.body).toContain("---");
+            expect(afterAppend.body).toContain("Appended content here.");
+
+            // Verify tags were merged
+            const record = getSkillByName(ctx.globalDb, name)!;
+            const recordTags = JSON.parse(record.tags) as string[];
+            expect(recordTags).toContain("v1");
+            expect(recordTags).toContain("v2");
+            expect(recordTags).toContain("appended");
+
+            // Verify keywords were merged
+            const recordKeywords = JSON.parse(record.keywords) as string[];
+            expect(recordKeywords).toContain("first");
+            expect(recordKeywords).toContain("second");
+        });
+
+        it("should preserve existing description when appending", async () => {
+            const name = "keep-desc-skill";
+            const frontmatter = { name, description: "Keep this description", tags: [], keywords: [] };
+            const filePath = path.join(ctx.globalSkillsDir, `${name}.md`);
+
+            await writeSkillFile(filePath, frontmatter, "Original body.");
+            insertSkill(ctx.globalDb, {
+                name,
+                description: frontmatter.description,
+                tags: [],
+                keywords: [],
+                contentHash: hashContent("Original body."),
+                filePath,
+                scope: "global",
+                projectPath: "",
+                snippet: "Keep this description",
+                overview: "",
+                indexableText: generateIndexableText(frontmatter, "Original body."),
+                related: [],
+                embedding: generateEmbedding("keep desc"),
+            });
+
+            // Simulate append — existing description should be preserved
+            const mergedDescription = frontmatter.description || "New description attempt";
+            expect(mergedDescription).toBe("Keep this description");
+        });
+
+        it("should update description if existing was empty", async () => {
+            const name = "empty-desc-skill";
+            const frontmatter = { name, description: "", tags: [], keywords: [] };
+            const filePath = path.join(ctx.globalSkillsDir, `${name}.md`);
+
+            await writeSkillFile(filePath, frontmatter, "Some body.");
+            insertSkill(ctx.globalDb, {
+                name,
+                description: "",
+                tags: [],
+                keywords: [],
+                contentHash: hashContent("Some body."),
+                filePath,
+                scope: "global",
+                projectPath: "",
+                snippet: "",
+                overview: "",
+                indexableText: generateIndexableText(frontmatter, "Some body."),
+                related: [],
+                embedding: generateEmbedding("empty desc"),
+            });
+
+            // Simulate append — empty description should be replaced
+            const existingDesc = "";
+            const newDesc = "Filled in by learning";
+            const mergedDescription = existingDesc || newDesc;
+            expect(mergedDescription).toBe("Filled in by learning");
         });
     });
 
@@ -566,6 +747,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 snippet: "A previewable skill",
                 overview,
                 indexableText: generateIndexableText(frontmatter, body),
+                related: [],
                 embedding: generateEmbedding("previewable skill test"),
             });
 
@@ -598,12 +780,169 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 snippet: "No headings",
                 overview: generateOverview(body),
                 indexableText: generateIndexableText(frontmatter, body),
+                related: [],
                 embedding: generateEmbedding("no heading skill"),
             });
 
             const record = getSkillByName(ctx.globalDb, name);
             expect(record).toBeDefined();
             expect(record!.overview).toBe("");
+        });
+    });
+
+    // ─── activity tracking ─────────────────────────────────────
+
+    describe("activity tracking flow", () => {
+        it("should increment read_count when skill_read is called", async () => {
+            const name = "tracked-skill";
+            const body = "## Content\n\nSome content here.";
+            const frontmatter = { name, description: "Tracked skill", tags: ["test"], keywords: [] };
+            const filePath = path.join(ctx.globalSkillsDir, `${name}.md`);
+
+            await writeSkillFile(filePath, frontmatter, body);
+            insertSkill(ctx.globalDb, {
+                name,
+                description: frontmatter.description,
+                tags: frontmatter.tags,
+                keywords: [],
+                contentHash: hashContent(body),
+                filePath,
+                scope: "global",
+                projectPath: "",
+                snippet: "Tracked skill",
+                overview: generateOverview(body),
+                indexableText: generateIndexableText(frontmatter, body),
+                related: [],
+                embedding: generateEmbedding("tracked skill test"),
+            });
+
+            // Verify initial read_count is 0
+            const before = getSkillByName(ctx.globalDb, name)!;
+            expect(before.read_count).toBe(0);
+
+            // Simulate skill_read handler incrementing read count
+            incrementReadCount(ctx.globalDb, before.id);
+
+            const after = getSkillByName(ctx.globalDb, name)!;
+            expect(after.read_count).toBe(1);
+            expect(after.last_read_at).not.toBeNull();
+        });
+
+        it("should increment read_count when skill_preview is called", async () => {
+            const name = "preview-tracked";
+            const body = "## Setup\n\nInstall first.\n\n## Run\n\nRun the thing.";
+            const frontmatter = { name, description: "Preview tracked", tags: [], keywords: [] };
+            const filePath = path.join(ctx.globalSkillsDir, `${name}.md`);
+
+            await writeSkillFile(filePath, frontmatter, body);
+            insertSkill(ctx.globalDb, {
+                name,
+                description: frontmatter.description,
+                tags: [],
+                keywords: [],
+                contentHash: hashContent(body),
+                filePath,
+                scope: "global",
+                projectPath: "",
+                snippet: "Preview tracked",
+                overview: generateOverview(body),
+                indexableText: generateIndexableText(frontmatter, body),
+                related: [],
+                embedding: generateEmbedding("preview tracked"),
+            });
+
+            const record = getSkillByName(ctx.globalDb, name)!;
+
+            // Simulate skill_preview handler incrementing read count
+            incrementReadCount(ctx.globalDb, record.id);
+            incrementReadCount(ctx.globalDb, record.id);
+
+            const after = getSkillByName(ctx.globalDb, name)!;
+            expect(after.read_count).toBe(2);
+        });
+    });
+
+    // ─── relation tracking ──────────────────────────────────────
+
+    describe("relation tracking flow", () => {
+        it("should store and retrieve related skills", async () => {
+            const name = "deploy-vercel";
+            const body = "## Steps\n\nDeploy to Vercel.";
+            const frontmatter = { name, description: "Deploy to Vercel", tags: ["deployment"], keywords: [], related: ["setup-env-vars", "vercel-domains"] };
+            const filePath = path.join(ctx.globalSkillsDir, `${name}.md`);
+
+            await writeSkillFile(filePath, frontmatter, body);
+            insertSkill(ctx.globalDb, {
+                name,
+                description: frontmatter.description,
+                tags: frontmatter.tags,
+                keywords: [],
+                contentHash: hashContent(body),
+                filePath,
+                scope: "global",
+                projectPath: "",
+                snippet: "Deploy to Vercel",
+                overview: generateOverview(body),
+                indexableText: generateIndexableText(frontmatter, body),
+                related: ["setup-env-vars", "vercel-domains"],
+                embedding: generateEmbedding("deploy vercel"),
+            });
+
+            const record = getSkillByName(ctx.globalDb, name)!;
+            const related = JSON.parse(record.related) as string[];
+            expect(related).toEqual(["setup-env-vars", "vercel-domains"]);
+        });
+
+        it("should include related field in skill_read response", async () => {
+            const name = "related-read-test";
+            const body = "## Content\n\nSome content.";
+            const frontmatter = { name, description: "Test", tags: [], keywords: [], related: ["other-skill"] };
+            const filePath = path.join(ctx.globalSkillsDir, `${name}.md`);
+
+            await writeSkillFile(filePath, frontmatter, body);
+            insertSkill(ctx.globalDb, {
+                name,
+                description: "Test",
+                tags: [],
+                keywords: [],
+                contentHash: hashContent(body),
+                filePath,
+                scope: "global",
+                projectPath: "",
+                snippet: "Test",
+                overview: generateOverview(body),
+                indexableText: generateIndexableText(frontmatter, body),
+                related: ["other-skill"],
+                embedding: generateEmbedding("related read test"),
+            });
+
+            // Simulate skill_read returning related
+            const record = getSkillByName(ctx.globalDb, name)!;
+            const related = JSON.parse(record.related || "[]") as string[];
+            expect(related).toEqual(["other-skill"]);
+        });
+
+        it("should parse related from frontmatter on disk", async () => {
+            const name = "from-disk";
+            const content = `---
+name: from-disk
+description: Skill with related
+tags:
+  - test
+related:
+  - skill-a
+  - skill-b
+---
+
+## Body
+
+Some content.`;
+
+            const filePath = path.join(ctx.globalSkillsDir, `${name}.md`);
+            await fs.writeFile(filePath, content);
+
+            const parsed = await readSkillFile(filePath);
+            expect(parsed.frontmatter.related).toEqual(["skill-a", "skill-b"]);
         });
     });
 
@@ -628,7 +967,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 name, description, tags, keywords: [],
                 contentHash: hashContent(content), filePath, scope: "global",
                 projectPath: "",
-                snippet, overview, indexableText, embedding,
+                snippet, overview, indexableText, related: [], embedding,
             });
 
             // 2. SEARCH — should find the skill

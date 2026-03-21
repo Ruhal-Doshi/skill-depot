@@ -13,6 +13,8 @@ import {
     searchByVector,
     clearSkillsByScope,
     getSkillCount,
+    incrementReadCount,
+    getMaxReadCount,
     type SkillInsert,
 } from "../../src/core/database.js";
 
@@ -45,6 +47,7 @@ function makeSkill(
         snippet: `Snippet for ${name}`,
         overview: `Overview for ${name}`,
         indexableText: `${name} test skill`,
+        related: [],
         embedding: makeEmbedding(name.charCodeAt(0)),
         ...overrides,
     };
@@ -296,6 +299,54 @@ describe("database", () => {
             const db = createDatabase(dbPath);
             const results = searchByVector(db, makeEmbedding(0), 5);
             expect(results).toEqual([]);
+            db.close();
+        });
+    });
+
+    describe("incrementReadCount", () => {
+        it("should increment read_count and set last_read_at", () => {
+            const db = createDatabase(dbPath);
+            const id = insertSkill(db, makeSkill("read-me"));
+
+            const before = getSkillById(db, id)!;
+            expect(before.read_count).toBe(0);
+            expect(before.last_read_at).toBeNull();
+
+            incrementReadCount(db, id);
+
+            const after = getSkillById(db, id)!;
+            expect(after.read_count).toBe(1);
+            expect(after.last_read_at).not.toBeNull();
+
+            incrementReadCount(db, id);
+            incrementReadCount(db, id);
+
+            const final = getSkillById(db, id)!;
+            expect(final.read_count).toBe(3);
+
+            db.close();
+        });
+    });
+
+    describe("getMaxReadCount", () => {
+        it("should return 0 when no skills exist", () => {
+            const db = createDatabase(dbPath);
+            expect(getMaxReadCount(db)).toBe(0);
+            db.close();
+        });
+
+        it("should return the highest read_count across all skills", () => {
+            const db = createDatabase(dbPath);
+            const id1 = insertSkill(db, makeSkill("skill-a"));
+            const id2 = insertSkill(db, makeSkill("skill-b"));
+
+            incrementReadCount(db, id1);
+            incrementReadCount(db, id1);
+            incrementReadCount(db, id1);
+            incrementReadCount(db, id2);
+
+            expect(getMaxReadCount(db)).toBe(3);
+
             db.close();
         });
     });

@@ -32,9 +32,9 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
 
                     insertSkill(globalDb, {
                         name,
-                        description: parsed.frontmatter.description,
-                        tags: parsed.frontmatter.tags,
-                        keywords: parsed.frontmatter.keywords,
+                        description: parsed.frontmatter.description ?? "",
+                        tags: parsed.frontmatter.tags ?? [],
+                        keywords: parsed.frontmatter.keywords ?? [],
                         contentHash,
                         filePath,
                         scope: "global",
@@ -42,6 +42,7 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
                         snippet,
                         overview,
                         indexableText,
+                        related: parsed.frontmatter.related ?? [],
                         embedding,
                     });
                     totalIndexed++;
@@ -82,9 +83,9 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
 
                         insertSkill(globalDb, {
                             name,
-                            description: parsed.frontmatter.description,
-                            tags: parsed.frontmatter.tags,
-                            keywords: parsed.frontmatter.keywords,
+                            description: parsed.frontmatter.description ?? "",
+                            tags: parsed.frontmatter.tags ?? [],
+                            keywords: parsed.frontmatter.keywords ?? [],
                             contentHash,
                             filePath,
                             scope: "project",
@@ -92,6 +93,7 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
                             snippet,
                             overview,
                             indexableText,
+                            related: parsed.frontmatter.related ?? [],
                             embedding,
                         });
                         totalIndexed++;

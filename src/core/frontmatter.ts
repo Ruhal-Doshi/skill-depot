@@ -2,9 +2,11 @@ import matter from "gray-matter";
 
 export interface SkillFrontmatter {
     name: string;
-    description: string;
-    tags: string[];
-    keywords: string[];
+    description?: string;
+    tags?: string[];
+    keywords?: string[];
+    related?: string[];
+    [key: string]: unknown; // Allow extra fields from user-authored frontmatter
 }
 
 export interface ParsedSkill {
@@ -28,6 +30,9 @@ export function parseSkillContent(content: string): ParsedSkill {
         keywords: Array.isArray(data.keywords)
             ? data.keywords.filter((k: unknown) => typeof k === "string")
             : [],
+        related: Array.isArray(data.related)
+            ? data.related.filter((r: unknown) => typeof r === "string")
+            : [],
     };
 
     return { frontmatter, body: body.trim(), raw: content };
@@ -37,15 +42,16 @@ export function parseSkillContent(content: string): ParsedSkill {
  * Serialize frontmatter and body back into a markdown string
  */
 export function serializeSkill(
-    frontmatter: SkillFrontmatter,
+    frontmatter: Partial<SkillFrontmatter> & { name: string },
     body: string
 ): string {
     // Only include non-empty fields
     const data: Record<string, unknown> = {};
     if (frontmatter.name) data.name = frontmatter.name;
     if (frontmatter.description) data.description = frontmatter.description;
-    if (frontmatter.tags.length > 0) data.tags = frontmatter.tags;
-    if (frontmatter.keywords.length > 0) data.keywords = frontmatter.keywords;
+    if (frontmatter.tags && frontmatter.tags.length > 0) data.tags = frontmatter.tags;
+    if (frontmatter.keywords && frontmatter.keywords.length > 0) data.keywords = frontmatter.keywords;
+    if (frontmatter.related && frontmatter.related.length > 0) data.related = frontmatter.related;
 
     return matter.stringify(body, data);
 }
@@ -54,15 +60,15 @@ export function serializeSkill(
  * Generate indexable text from frontmatter for embedding
  */
 export function generateIndexableText(
-    frontmatter: SkillFrontmatter,
+    frontmatter: Partial<SkillFrontmatter>,
     body?: string
 ): string {
     const parts: string[] = [];
 
     if (frontmatter.name) parts.push(frontmatter.name);
     if (frontmatter.description) parts.push(frontmatter.description);
-    if (frontmatter.tags.length > 0) parts.push(frontmatter.tags.join(" "));
-    if (frontmatter.keywords.length > 0)
+    if (frontmatter.tags && frontmatter.tags.length > 0) parts.push(frontmatter.tags.join(" "));
+    if (frontmatter.keywords && frontmatter.keywords.length > 0)
         parts.push(frontmatter.keywords.join(" "));
 
     // Extract headings from body for additional context
@@ -82,7 +88,7 @@ export function generateIndexableText(
  * Generate a short snippet from the skill content (for search results)
  */
 export function generateSnippet(
-    frontmatter: SkillFrontmatter,
+    frontmatter: Partial<SkillFrontmatter>,
     body: string,
     maxLength = 200
 ): string {

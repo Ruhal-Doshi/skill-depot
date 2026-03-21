@@ -11,8 +11,10 @@
 - **🤖 Agent-Agnostic** — Works with Claude Code, Codex, OpenClaw, Gemini, and any MCP-compatible agent
 - **📂 Two-Scope Storage** — Global skills (`~/.skill-depot/`) available everywhere, project skills (`.skill-depot/`) synced via git
 - **⚡ Auto-Discovery** — Finds existing skills from your AI agents during setup
-- **🔌 MCP Protocol** — Integrates seamlessly as an MCP server with 8 tools for skill management
+- **🔌 MCP Protocol** — Integrates seamlessly as an MCP server with 9 tools for skill management
 - **📊 Tiered Detail Levels** — Three levels of detail (snippet → overview → full content) to minimize token usage
+- **📈 Activity Scoring** — Frequently used skills rank higher in search results automatically
+- **🔗 Relation Tracking** — Link related skills together so agents can discover connected knowledge
 
 ## 🚀 Quick Start
 
@@ -53,9 +55,10 @@ Your agent now has access to these tools:
 
 | Tool | Description |
 |------|-------------|
-| `skill_search` | Semantic search — returns metadata, snippets, and `hasOverview` flag |
+| `skill_search` | Semantic search — accepts optional `context` for better relevance |
 | `skill_preview` | Get a structured overview (headings + first sentences) without loading full content |
 | `skill_read` | Load the full content of a skill |
+| `skill_learn` | Learn something new — creates or appends to a skill (upsert) |
 | `skill_save` | Save a new skill and index it |
 | `skill_update` | Update an existing skill |
 | `skill_delete` | Remove a skill |
@@ -98,6 +101,27 @@ Agent → skill_preview("deploy-vercel")
 
 Agent → skill_read("deploy-vercel")
      ← Full markdown content of the skill
+```
+
+### Context-Aware Search
+
+Pass an optional `context` parameter to `skill_search` for more relevant results. The context is combined with the query before generating the search embedding:
+
+```
+Agent → skill_search({ query: "deploy", context: "Next.js app with Vercel, fixing CI pipeline" })
+     ← deploy-vercel ranks higher than deploy-aws because the context narrows the search
+```
+
+### Agent Learning
+
+Agents can save knowledge on the fly using `skill_learn`. If the skill doesn't exist, it's created. If it does, the new content is appended with a `---` separator, and tags/keywords are merged automatically.
+
+```
+Agent → skill_learn({ name: "nextjs-gotchas", content: "API routes cache by default...", tags: ["nextjs"] })
+     ← { action: "created" }
+
+Agent → skill_learn({ name: "nextjs-gotchas", content: "Image optimization requires sharp...", tags: ["images"] })
+     ← { action: "appended" }   // tags merged: ["nextjs", "images"]
 ```
 
 ### Storage Architecture
@@ -151,6 +175,7 @@ name: deploy-to-vercel
 description: How to deploy a Next.js application to Vercel
 tags: [deployment, vercel, nextjs]
 keywords: [vercel cli, production build, environment variables]
+related: [setup-env-vars, vercel-domains]
 ---
 
 ## Steps

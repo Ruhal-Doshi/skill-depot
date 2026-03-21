@@ -3,6 +3,7 @@ import {
     searchByVector,
     getSkillById,
     getAllSkills,
+    getMaxReadCount,
     type SkillRecord,
 } from "./database.js";
 import { generateEmbedding } from "./embeddings.js";
@@ -21,6 +22,7 @@ interface SearchOptions {
     topK?: number;
     scope?: "all" | "global" | "project";
     cwd?: string;
+    context?: string;
 }
 
 /**
@@ -31,20 +33,34 @@ export async function searchSkills(
     query: string,
     options: SearchOptions = {}
 ): Promise<SearchResult[]> {
-    const { topK = 5, scope = "all", cwd } = options;
+    const { topK = 5, scope = "all", cwd, context } = options;
+
+    // Prepend context to query for richer embedding signal
+    const effectiveQuery = context ? `${context} ${query}` : query;
 
     // Generate embedding for the query
-    const queryEmbedding = await generateEmbedding(query);
+    const queryEmbedding = await generateEmbedding(effectiveQuery);
 
     const vectorResults = searchByVector(db, queryEmbedding, topK, scope, cwd);
     const results: SearchResult[] = [];
+
+    // Get max read count for normalization
+    const maxReadCount = getMaxReadCount(db);
 
     for (const vr of vectorResults) {
         const skill = getSkillById(db, vr.skillId);
         if (!skill) continue;
 
         // Convert distance to a similarity score (0-1, higher is better)
-        const relevanceScore = 1 / (1 + vr.distance);
+        const vectorScore = 1 / (1 + vr.distance);
+
+        // Compute hotness boost from read frequency (0-1 range)
+        const hotnessBoost = maxReadCount > 0
+            ? skill.read_count / maxReadCount
+            : 0;
+
+        // Blend: 90% vector similarity + 10% activity
+        const relevanceScore = vectorScore * 0.9 + hotnessBoost * 0.1;
 
         results.push({
             name: skill.name,

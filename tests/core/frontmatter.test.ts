@@ -92,6 +92,7 @@ Body.`;
                 description: "A test skill",
                 tags: ["testing"],
                 keywords: ["unit test"],
+                related: [],
             };
             const body = "## Instructions\n\n1. Do the thing";
 
@@ -111,6 +112,7 @@ Body.`;
                 description: "",
                 tags: [],
                 keywords: [],
+                related: [],
             };
 
             const serialized = serializeSkill(frontmatter, "Body");
@@ -129,6 +131,7 @@ Body.`;
                 description: "Deploy to production",
                 tags: ["ci", "cd"],
                 keywords: ["github actions"],
+                related: [],
             };
 
             const text = generateIndexableText(frontmatter);
@@ -146,9 +149,10 @@ Body.`;
                 description: "",
                 tags: [],
                 keywords: [],
+                related: [],
             };
-            const body = "# Main Title\n\nSome text\n\n## Sub Section\n\nMore text";
 
+            const body = "# Main Title\n\nSome text\n\n## Sub Section\n\nMore text";
             const text = generateIndexableText(frontmatter, body);
 
             expect(text).toContain("Main Title");

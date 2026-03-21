@@ -2,7 +2,7 @@
 // Re-export core modules for programmatic usage
 
 export { createSkillDepotServer } from "./mcp/server.js";
-export { createDatabase, insertSkill, updateSkill, deleteSkill, getSkillByName, searchByVector, getAllSkills } from "./core/database.js";
+export { createDatabase, insertSkill, updateSkill, deleteSkill, getSkillByName, searchByVector, getAllSkills, incrementReadCount, getMaxReadCount } from "./core/database.js";
 export { generateEmbedding, generateBM25Embedding, isModelDownloaded } from "./core/embeddings.js";
 export { searchSkills, listSkills } from "./core/search.js";
 export { readSkillFile, writeSkillFile, deleteSkillFile, listSkillFiles, hashContent } from "./core/file-manager.js";

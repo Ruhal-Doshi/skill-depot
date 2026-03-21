@@ -14,6 +14,9 @@ export interface SkillRecord {
     snippet: string;
     overview: string;
     indexable_text: string;
+    related: string; // JSON array
+    read_count: number;
+    last_read_at: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -30,6 +33,7 @@ export interface SkillInsert {
     snippet: string;
     overview: string;
     indexableText: string;
+    related: string[];
     embedding: Float32Array;
 }
 
@@ -75,6 +79,27 @@ export function createDatabase(dbPath: string): Database.Database {
         // Ignore
     }
 
+    // Migration: Add activity tracking columns
+    try {
+        const tableInfo = db.pragma("table_info(skills)") as any[];
+        if (tableInfo.length > 0 && !tableInfo.some(c => c.name === 'read_count')) {
+            db.exec(`ALTER TABLE skills ADD COLUMN read_count INTEGER NOT NULL DEFAULT 0`);
+            db.exec(`ALTER TABLE skills ADD COLUMN last_read_at TEXT`);
+        }
+    } catch (err) {
+        // Ignore
+    }
+
+    // Migration: Add related column
+    try {
+        const tableInfo = db.pragma("table_info(skills)") as any[];
+        if (tableInfo.length > 0 && !tableInfo.some(c => c.name === 'related')) {
+            db.exec(`ALTER TABLE skills ADD COLUMN related TEXT NOT NULL DEFAULT '[]'`);
+        }
+    } catch (err) {
+        // Ignore
+    }
+
     // Create schema
     db.exec(`
     CREATE TABLE IF NOT EXISTS skills (
@@ -90,6 +115,9 @@ export function createDatabase(dbPath: string): Database.Database {
       snippet TEXT NOT NULL DEFAULT '',
       overview TEXT NOT NULL DEFAULT '',
       indexable_text TEXT NOT NULL DEFAULT '',
+      related TEXT NOT NULL DEFAULT '[]',
+      read_count INTEGER NOT NULL DEFAULT 0,
+      last_read_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(name, scope, project_path)
@@ -115,8 +143,8 @@ export function insertSkill(db: Database.Database, skill: SkillInsert): number {
     const now = new Date().toISOString();
 
     const insertSkillStmt = db.prepare(`
-    INSERT INTO skills (name, description, tags, keywords, content_hash, file_path, scope, project_path, snippet, overview, indexable_text, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO skills (name, description, tags, keywords, content_hash, file_path, scope, project_path, snippet, overview, indexable_text, related, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(name, scope, project_path) DO UPDATE SET
       description = excluded.description,
       tags = excluded.tags,
@@ -126,6 +154,7 @@ export function insertSkill(db: Database.Database, skill: SkillInsert): number {
       snippet = excluded.snippet,
       overview = excluded.overview,
       indexable_text = excluded.indexable_text,
+      related = excluded.related,
       updated_at = excluded.updated_at
     RETURNING id
   `);
@@ -143,6 +172,7 @@ export function insertSkill(db: Database.Database, skill: SkillInsert): number {
             skill.snippet,
             skill.overview,
             skill.indexableText,
+            JSON.stringify(skill.related),
             now,
             now
         ) as { id: number };
@@ -194,6 +224,7 @@ export function updateSkill(
       snippet = COALESCE(?, snippet),
       overview = COALESCE(?, overview),
       indexable_text = COALESCE(?, indexable_text),
+      related = COALESCE(?, related),
       updated_at = ?
     WHERE id = ?
   `);
@@ -208,6 +239,7 @@ export function updateSkill(
             updates.snippet ?? null,
             updates.overview ?? null,
             updates.indexableText ?? null,
+            updates.related ? JSON.stringify(updates.related) : null,
             now,
             existing.id
         );
@@ -403,4 +435,26 @@ export function getSkillCount(db: Database.Database): number {
         .prepare(`SELECT COUNT(*) as count FROM skills`)
         .get() as { count: number };
     return result.count;
+}
+
+/**
+ * Increment the read count and update last_read_at for a skill
+ */
+export function incrementReadCount(db: Database.Database, skillId: number): void {
+    db.prepare(`
+        UPDATE skills SET
+            read_count = read_count + 1,
+            last_read_at = datetime('now')
+        WHERE id = ?
+    `).run(skillId);
+}
+
+/**
+ * Get the maximum read_count across all skills (for normalization)
+ */
+export function getMaxReadCount(db: Database.Database): number {
+    const result = db
+        .prepare(`SELECT MAX(read_count) as max_count FROM skills`)
+        .get() as { max_count: number | null };
+    return result.max_count ?? 0;
 }

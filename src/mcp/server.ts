@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v4";
 import Database from "better-sqlite3";
 
-import { createDatabase, insertSkill, updateSkill, deleteSkill, getSkillByName, clearSkillsByScope } from "../core/database.js";
+import { createDatabase, insertSkill, updateSkill, deleteSkill, getSkillByName, clearSkillsByScope, incrementReadCount } from "../core/database.js";
 import { generateEmbedding } from "../core/embeddings.js";
 import { searchSkills, listSkills } from "../core/search.js";
 import { readSkillFile, writeSkillFile, deleteSkillFile, listSkillFiles, hashContent, getSkillNameFromPath } from "../core/file-manager.js";
@@ -41,13 +41,15 @@ export function createSkillDepotServer(projectRoot?: string): {
                 cwd: z.string().describe("Absolute path of your current working directory"),
                 topK: z.number().optional().default(5).describe("Number of results to return (default: 5)"),
                 scope: z.enum(["all", "global", "project"]).optional().default("all").describe("Search scope"),
+                context: z.string().optional().describe("Current working context (e.g. 'Next.js app with Vercel') to improve search relevance"),
             },
         },
-        async ({ query, cwd, topK, scope }) => {
+        async ({ query, cwd, topK, scope, context }) => {
             const results = await searchSkills(ctx.globalDb, query, {
                 topK,
                 scope,
                 cwd,
+                context,
             });
 
             return {
@@ -99,6 +101,7 @@ export function createSkillDepotServer(projectRoot?: string): {
 
             try {
                 const parsed = await readSkillFile(record.file_path);
+                incrementReadCount(ctx.globalDb, record.id);
                 return {
                     content: [
                         {
@@ -109,6 +112,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                                     scope: record.scope,
                                     filePath: record.file_path,
                                     overview: record.overview || null,
+                                    related: JSON.parse(record.related || "[]"),
                                     content: parsed.raw,
                                 },
                                 null,
@@ -152,6 +156,8 @@ export function createSkillDepotServer(projectRoot?: string): {
                     isError: true,
                 };
             }
+
+            incrementReadCount(ctx.globalDb, record.id);
 
             if (!record.overview) {
                 return {
@@ -206,10 +212,11 @@ export function createSkillDepotServer(projectRoot?: string): {
                 scope: z.enum(["global", "project"]).default("global").describe("Where to save the skill"),
                 tags: z.array(z.string()).optional().default([]).describe("Tags for categorization"),
                 keywords: z.array(z.string()).optional().default([]).describe("Keywords to improve search relevance"),
+                related: z.array(z.string()).optional().default([]).describe("Names of related skills"),
                 cwd: z.string().describe("Absolute path of your current working directory"),
             },
         },
-        async ({ name, description, content, scope, tags, keywords, cwd }) => {
+        async ({ name, description, content, scope, tags, keywords, related, cwd }) => {
             const db = ctx.globalDb;
             const actualScope = scope;
 
@@ -227,7 +234,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                 };
             }
 
-            const frontmatter = { name, description, tags: tags || [], keywords: keywords || [] };
+            const frontmatter = { name, description, tags: tags || [], keywords: keywords || [], related: related || [] };
             const filePath = getSkillFilePath(name, actualScope, cwd);
 
             // Write the file
@@ -252,6 +259,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                 snippet,
                 overview,
                 indexableText,
+                related: related || [],
                 embedding,
             });
 
@@ -260,6 +268,117 @@ export function createSkillDepotServer(projectRoot?: string): {
                     {
                         type: "text" as const,
                         text: JSON.stringify({ filePath, indexed: true, scope: actualScope }, null, 2),
+                    },
+                ],
+            };
+        }
+    );
+
+    // ─── skill_learn ──────────────────────────────────────────
+    mcpServer.registerTool(
+        "skill_learn",
+        {
+            description:
+                "Learn something new — creates a skill if it doesn't exist, or appends content to an existing one. Use when the agent discovers a useful pattern, gotcha, or lesson worth remembering.",
+            inputSchema: {
+                name: z.string().describe("Name for the learned skill"),
+                description: z.string().describe("Short description of what was learned"),
+                content: z.string().describe("Markdown content to save or append"),
+                scope: z.enum(["global", "project"]).default("global").describe("Where to save the skill"),
+                tags: z.array(z.string()).optional().default([]).describe("Tags for categorization"),
+                keywords: z.array(z.string()).optional().default([]).describe("Keywords to improve search relevance"),
+                related: z.array(z.string()).optional().default([]).describe("Names of related skills"),
+                cwd: z.string().describe("Absolute path of your current working directory"),
+            },
+        },
+        async ({ name, description, content, scope, tags, keywords, related, cwd }) => {
+            const db = ctx.globalDb;
+            const existing = getSkillByName(db, name, cwd);
+
+            if (!existing) {
+                // Create new skill — same flow as skill_save
+                const frontmatter = { name, description, tags: tags || [], keywords: keywords || [], related: related || [] };
+                const filePath = getSkillFilePath(name, scope, cwd);
+
+                await writeSkillFile(filePath, frontmatter, content);
+
+                const indexableText = generateIndexableText(frontmatter, content);
+                const snippet = generateSnippet(frontmatter, content);
+                const overview = generateOverview(content);
+                const embedding = await generateEmbedding(indexableText);
+                const contentHash = hashContent(content);
+
+                insertSkill(db, {
+                    name,
+                    description,
+                    tags: tags || [],
+                    keywords: keywords || [],
+                    contentHash,
+                    filePath,
+                    scope,
+                    projectPath: scope === "global" ? "" : cwd,
+                    snippet,
+                    overview,
+                    indexableText,
+                    related: related || [],
+                    embedding,
+                });
+
+                return {
+                    content: [
+                        {
+                            type: "text" as const,
+                            text: JSON.stringify({ name, action: "created", scope, filePath }, null, 2),
+                        },
+                    ],
+                };
+            }
+
+            // Append to existing skill
+            const parsed = await readSkillFile(existing.file_path);
+            const newBody = parsed.body + "\n\n---\n\n" + content;
+
+            // Merge tags and keywords, deduplicating
+            const mergedTags = [...new Set([...(parsed.frontmatter.tags ?? []), ...(tags || [])])];
+            const mergedKeywords = [...new Set([...(parsed.frontmatter.keywords ?? []), ...(keywords || [])])];
+            const mergedRelated = [...new Set([...(parsed.frontmatter.related ?? []), ...(related || [])])];
+
+            // Update description only if existing one is empty
+            const mergedDescription = parsed.frontmatter.description || description;
+
+            const newFrontmatter = {
+                ...parsed.frontmatter,
+                description: mergedDescription,
+                tags: mergedTags,
+                keywords: mergedKeywords,
+                related: mergedRelated,
+            };
+
+            await writeSkillFile(existing.file_path, newFrontmatter, newBody);
+
+            const indexableText = generateIndexableText(newFrontmatter, newBody);
+            const snippet = generateSnippet(newFrontmatter, newBody);
+            const overview = generateOverview(newBody);
+            const embedding = await generateEmbedding(indexableText);
+            const contentHash = hashContent(newBody);
+
+            updateSkill(db, name, {
+                description: mergedDescription,
+                tags: mergedTags,
+                keywords: mergedKeywords,
+                related: mergedRelated,
+                contentHash,
+                snippet,
+                overview,
+                indexableText,
+                embedding,
+            });
+
+            return {
+                content: [
+                    {
+                        type: "text" as const,
+                        text: JSON.stringify({ name, action: "appended", scope: existing.scope, filePath: existing.file_path }, null, 2),
                     },
                 ],
             };
@@ -277,10 +396,11 @@ export function createSkillDepotServer(projectRoot?: string): {
                 description: z.string().optional().describe("Updated description"),
                 tags: z.array(z.string()).optional().describe("Updated tags"),
                 keywords: z.array(z.string()).optional().describe("Updated keywords"),
+                related: z.array(z.string()).optional().describe("Updated related skill names"),
                 cwd: z.string().describe("Absolute path of your current working directory"),
             },
         },
-        async ({ name, content, description, tags, keywords, cwd }) => {
+        async ({ name, content, description, tags, keywords, related, cwd }) => {
             const record = getSkillByName(ctx.globalDb, name, cwd);
             const db = ctx.globalDb;
 
@@ -300,6 +420,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                 ...(description !== undefined ? { description } : {}),
                 ...(tags !== undefined ? { tags } : {}),
                 ...(keywords !== undefined ? { keywords } : {}),
+                ...(related !== undefined ? { related } : {}),
             };
             const newBody = content !== undefined ? content : existing.body;
 
@@ -317,6 +438,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                 description: newFrontmatter.description,
                 tags: newFrontmatter.tags,
                 keywords: newFrontmatter.keywords,
+                related: newFrontmatter.related,
                 contentHash,
                 snippet,
                 overview,
@@ -411,9 +533,9 @@ export function createSkillDepotServer(projectRoot?: string): {
 
                         insertSkill(db, {
                             name,
-                            description: parsed.frontmatter.description,
-                            tags: parsed.frontmatter.tags,
-                            keywords: parsed.frontmatter.keywords,
+                            description: parsed.frontmatter.description ?? "",
+                            tags: parsed.frontmatter.tags ?? [],
+                            keywords: parsed.frontmatter.keywords ?? [],
                             contentHash,
                             filePath,
                             scope: dbScope,
@@ -421,6 +543,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                             snippet,
                             overview,
                             indexableText,
+                            related: parsed.frontmatter.related ?? [],
                             embedding,
                         });
                         indexed++;

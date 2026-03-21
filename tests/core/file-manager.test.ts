@@ -32,6 +32,7 @@ describe("file-manager", () => {
                 description: "A test skill",
                 tags: ["testing"],
                 keywords: ["unit"],
+                related: [],
             };
             const body = "## Steps\n\n1. Do the thing";
 
@@ -50,7 +51,7 @@ describe("file-manager", () => {
             const filePath = path.join(tmpDir, "nested", "dir", "skill.md");
             await writeSkillFile(
                 filePath,
-                { name: "nested", description: "", tags: [], keywords: [] },
+                { name: "nested", description: "", tags: [], keywords: [], related: [] },
                 "Body"
             );
 

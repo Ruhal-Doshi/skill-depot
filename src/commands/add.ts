@@ -50,9 +50,9 @@ export async function addCommand(file: string, options: AddOptions): Promise<voi
 
         insertSkill(db, {
             name,
-            description: parsed.frontmatter.description,
-            tags: parsed.frontmatter.tags,
-            keywords: parsed.frontmatter.keywords,
+            description: parsed.frontmatter.description ?? "",
+            tags: parsed.frontmatter.tags ?? [],
+            keywords: parsed.frontmatter.keywords ?? [],
             contentHash,
             filePath: destPath,
             scope,
@@ -60,6 +60,7 @@ export async function addCommand(file: string, options: AddOptions): Promise<voi
             snippet,
             overview,
             indexableText,
+            related: parsed.frontmatter.related ?? [],
             embedding,
         });
 

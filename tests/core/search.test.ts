@@ -5,6 +5,7 @@ import os from "node:os";
 import {
     createDatabase,
     insertSkill,
+    incrementReadCount,
     type SkillInsert,
 } from "../../src/core/database.js";
 import { searchSkills, listSkills } from "../../src/core/search.js";
@@ -38,6 +39,7 @@ function makeSkill(
         snippet: `Snippet for ${name}`,
         overview: "",
         indexableText: `${name} test`,
+        related: [],
         embedding: makeEmbedding(name.charCodeAt(0)),
         ...overrides,
     };
@@ -189,6 +191,76 @@ describe("search", () => {
 
             expect(results.length).toBeGreaterThan(0);
             expect(results[0].hasOverview).toBe(false);
+
+            globalDb.close();
+        });
+
+        it("should boost scores for frequently read skills", async () => {
+            const globalDb = createDatabase(globalDbPath);
+
+            // Insert two skills with identical embeddings so vector scores are equal
+            const text = "deploy vercel nextjs application";
+            const embedding = generateBM25Embedding(text);
+
+            const id1 = insertSkill(globalDb, makeSkill("popular-skill", {
+                scope: "global",
+                indexableText: text,
+                embedding,
+            }));
+            const id2 = insertSkill(globalDb, makeSkill("unpopular-skill", {
+                scope: "global",
+                indexableText: text,
+                embedding,
+            }));
+
+            // Give the popular skill many reads
+            for (let i = 0; i < 10; i++) {
+                incrementReadCount(globalDb, id1);
+            }
+
+            const results = await searchSkills(globalDb, text, {
+                topK: 5,
+                scope: "all",
+            });
+
+            expect(results.length).toBe(2);
+            const popular = results.find(r => r.name === "popular-skill")!;
+            const unpopular = results.find(r => r.name === "unpopular-skill")!;
+            expect(popular.relevanceScore).toBeGreaterThan(unpopular.relevanceScore);
+
+            globalDb.close();
+        });
+
+        it("should use context to improve search relevance", async () => {
+            const globalDb = createDatabase(globalDbPath);
+
+            insertSkill(globalDb, makeSkill("deploy-vercel", {
+                scope: "global",
+                indexableText: "deploy vercel nextjs application frontend",
+                embedding: generateBM25Embedding("deploy vercel nextjs application frontend"),
+            }));
+            insertSkill(globalDb, makeSkill("deploy-aws", {
+                scope: "global",
+                indexableText: "deploy aws ec2 lambda backend server",
+                embedding: generateBM25Embedding("deploy aws ec2 lambda backend server"),
+            }));
+
+            // Without context, just "deploy" — both should appear
+            const noContext = await searchSkills(globalDb, "deploy", {
+                topK: 5,
+                scope: "all",
+            });
+            expect(noContext.length).toBe(2);
+
+            // With vercel-related context, vercel skill should rank first
+            const withContext = await searchSkills(globalDb, "deploy", {
+                topK: 5,
+                scope: "all",
+                context: "Working on a Next.js app with Vercel",
+            });
+
+            expect(withContext.length).toBe(2);
+            expect(withContext[0].name).toBe("deploy-vercel");
 
             globalDb.close();
         });
