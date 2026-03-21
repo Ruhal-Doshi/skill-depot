@@ -43,6 +43,7 @@ function makeSkill(
         scope: "global",
         projectPath: overrides.scope === "project" ? "/project/path" : "",
         snippet: `Snippet for ${name}`,
+        overview: `Overview for ${name}`,
         indexableText: `${name} test skill`,
         embedding: makeEmbedding(name.charCodeAt(0)),
         ...overrides,
@@ -123,6 +124,19 @@ describe("database", () => {
 
             db.close();
         });
+
+        it("should store and retrieve the overview field", () => {
+            const db = createDatabase(dbPath);
+            const skill = makeSkill("with-overview", { overview: "## Setup\nInstall deps." });
+
+            insertSkill(db, skill);
+
+            const retrieved = getSkillByName(db, "with-overview");
+            expect(retrieved).toBeDefined();
+            expect(retrieved!.overview).toBe("## Setup\nInstall deps.");
+
+            db.close();
+        });
     });
 
     describe("updateSkill", () => {
@@ -148,6 +162,22 @@ describe("database", () => {
             const db = createDatabase(dbPath);
             const result = updateSkill(db, "nope", { description: "test" });
             expect(result).toBe(false);
+            db.close();
+        });
+
+        it("should update the overview field", () => {
+            const db = createDatabase(dbPath);
+            insertSkill(db, makeSkill("overview-update", { overview: "old overview" }));
+
+            const updated = updateSkill(db, "overview-update", {
+                overview: "## New\nUpdated overview content.",
+            });
+
+            expect(updated).toBe(true);
+
+            const record = getSkillByName(db, "overview-update");
+            expect(record!.overview).toBe("## New\nUpdated overview content.");
+
             db.close();
         });
 

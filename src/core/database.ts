@@ -12,6 +12,7 @@ export interface SkillRecord {
     scope: "global" | "project";
     project_path: string;
     snippet: string;
+    overview: string;
     indexable_text: string;
     created_at: string;
     updated_at: string;
@@ -27,6 +28,7 @@ export interface SkillInsert {
     scope: "global" | "project";
     projectPath: string;
     snippet: string;
+    overview: string;
     indexableText: string;
     embedding: Float32Array;
 }
@@ -63,6 +65,16 @@ export function createDatabase(dbPath: string): Database.Database {
         // Ignore
     }
 
+    // Migration: Check if overview column exists, add it if not
+    try {
+        const tableInfo = db.pragma("table_info(skills)") as any[];
+        if (tableInfo.length > 0 && !tableInfo.some(c => c.name === 'overview')) {
+            db.exec(`ALTER TABLE skills ADD COLUMN overview TEXT NOT NULL DEFAULT ''`);
+        }
+    } catch (err) {
+        // Ignore
+    }
+
     // Create schema
     db.exec(`
     CREATE TABLE IF NOT EXISTS skills (
@@ -76,6 +88,7 @@ export function createDatabase(dbPath: string): Database.Database {
       scope TEXT NOT NULL CHECK(scope IN ('global', 'project')),
       project_path TEXT NOT NULL DEFAULT '',
       snippet TEXT NOT NULL DEFAULT '',
+      overview TEXT NOT NULL DEFAULT '',
       indexable_text TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -102,8 +115,8 @@ export function insertSkill(db: Database.Database, skill: SkillInsert): number {
     const now = new Date().toISOString();
 
     const insertSkillStmt = db.prepare(`
-    INSERT INTO skills (name, description, tags, keywords, content_hash, file_path, scope, project_path, snippet, indexable_text, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO skills (name, description, tags, keywords, content_hash, file_path, scope, project_path, snippet, overview, indexable_text, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(name, scope, project_path) DO UPDATE SET
       description = excluded.description,
       tags = excluded.tags,
@@ -111,6 +124,7 @@ export function insertSkill(db: Database.Database, skill: SkillInsert): number {
       content_hash = excluded.content_hash,
       file_path = excluded.file_path,
       snippet = excluded.snippet,
+      overview = excluded.overview,
       indexable_text = excluded.indexable_text,
       updated_at = excluded.updated_at
     RETURNING id
@@ -127,6 +141,7 @@ export function insertSkill(db: Database.Database, skill: SkillInsert): number {
             skill.scope,
             skill.projectPath,
             skill.snippet,
+            skill.overview,
             skill.indexableText,
             now,
             now
@@ -177,6 +192,7 @@ export function updateSkill(
       content_hash = COALESCE(?, content_hash),
       file_path = COALESCE(?, file_path),
       snippet = COALESCE(?, snippet),
+      overview = COALESCE(?, overview),
       indexable_text = COALESCE(?, indexable_text),
       updated_at = ?
     WHERE id = ?
@@ -190,6 +206,7 @@ export function updateSkill(
             updates.contentHash ?? null,
             updates.filePath ?? null,
             updates.snippet ?? null,
+            updates.overview ?? null,
             updates.indexableText ?? null,
             now,
             existing.id

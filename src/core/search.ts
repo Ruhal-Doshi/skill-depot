@@ -13,6 +13,7 @@ export interface SearchResult {
     tags: string[];
     scope: "global" | "project";
     snippet: string;
+    hasOverview: boolean;
     relevanceScore: number;
 }
 
@@ -51,6 +52,7 @@ export async function searchSkills(
             tags: JSON.parse(skill.tags) as string[],
             scope: skill.scope as "global" | "project",
             snippet: skill.snippet,
+            hasOverview: (skill.overview ?? "").length > 0,
             relevanceScore,
         });
     }

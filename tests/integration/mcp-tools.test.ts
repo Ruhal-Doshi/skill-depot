@@ -14,7 +14,7 @@ import { createDatabase, insertSkill, updateSkill, deleteSkill, getSkillByName, 
 import { generateBM25Embedding } from "../../src/core/embeddings.js";
 import { searchSkills, listSkills } from "../../src/core/search.js";
 import { readSkillFile, writeSkillFile, deleteSkillFile, listSkillFiles, hashContent, getSkillNameFromPath } from "../../src/core/file-manager.js";
-import { parseSkillContent, generateIndexableText, generateSnippet } from "../../src/core/frontmatter.js";
+import { parseSkillContent, generateIndexableText, generateSnippet, generateOverview } from "../../src/core/frontmatter.js";
 
 // Use BM25 directly to avoid downloading the 80MB transformer model in tests
 const generateEmbedding = generateBM25Embedding;
@@ -97,6 +97,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
 
             const indexableText = generateIndexableText(frontmatter, content);
             const snippet = generateSnippet(frontmatter, content);
+            const overview = generateOverview(content);
             const embedding = generateEmbedding(indexableText);
             const contentHash = hashContent(content);
 
@@ -110,6 +111,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 scope,
                 projectPath: scope === "global" ? "" : ctx.projectDir,
                 snippet,
+                overview,
                 indexableText,
                 embedding,
             });
@@ -126,6 +128,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
             const record = getSkillByName(ctx.globalDb, name);
             expect(record).toBeDefined();
             expect(record!.scope).toBe("global");
+            expect(record!.overview).toContain("## Steps");
         });
 
         it("should accept duplicate skill names and update them", async () => {
@@ -145,6 +148,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 scope: "global",
                 projectPath: "",
                 snippet: "test",
+                overview: "",
                 indexableText: "test",
                 embedding,
             });
@@ -161,6 +165,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 scope: "global",
                 projectPath: "",
                 snippet: "test2",
+                overview: "",
                 indexableText: "test2",
                 embedding: updatedEmbedding,
             });
@@ -221,6 +226,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
 
                 const indexableText = generateIndexableText(frontmatter, body);
                 const snippet = generateSnippet(frontmatter, body);
+                const overview = generateOverview(body);
                 const embedding = generateEmbedding(indexableText);
 
                 insertSkill(s.db, {
@@ -233,6 +239,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                     scope: s.scope,
                     projectPath: s.scope === "global" ? "" : ctx.projectDir,
                     snippet,
+                    overview,
                     indexableText,
                     embedding,
                 });
@@ -302,6 +309,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 scope: "global",
                 projectPath: "",
                 snippet: "A readable skill",
+                overview: generateOverview(body),
                 indexableText: generateIndexableText(frontmatter, body),
                 embedding: generateEmbedding("readable skill test"),
             });
@@ -331,13 +339,13 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 name, description: "global version", tags: [], keywords: [],
                 contentHash: "g", filePath: globalPath, scope: "global",
                 projectPath: "",
-                snippet: "g", indexableText: "g", embedding,
+                snippet: "g", overview: "", indexableText: "g", embedding,
             });
             insertSkill(ctx.globalDb, {
                 name, description: "project version", tags: [], keywords: [],
                 contentHash: "p", filePath: projectPath, scope: "project",
                 projectPath: ctx.projectDir,
-                snippet: "p", indexableText: "p", embedding,
+                snippet: "p", overview: "", indexableText: "p", embedding,
             });
 
             // Simulate priority: project > global
@@ -369,6 +377,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 scope: "global",
                 projectPath: "",
                 snippet: "Original desc",
+                overview: generateOverview(originalBody),
                 indexableText: generateIndexableText(frontmatter, originalBody),
                 embedding: generateEmbedding("original"),
             });
@@ -396,6 +405,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 description: updatedDescription,
                 tags: updatedTags,
                 snippet: newSnippet,
+                overview: generateOverview(updatedBody),
                 indexableText: newIndexableText,
                 embedding: newEmbedding,
                 contentHash: hashContent(updatedBody),
@@ -435,6 +445,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 scope: "global",
                 projectPath: "",
                 snippet: "temp",
+                overview: "",
                 indexableText: "temp",
                 embedding: generateEmbedding("temp"),
             });
@@ -463,13 +474,13 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 name: "global-a", description: "A", tags: ["tag1"], keywords: [],
                 contentHash: "a", filePath: "/a.md", scope: "global",
                 projectPath: "",
-                snippet: "a", indexableText: "a", embedding,
+                snippet: "a", overview: "", indexableText: "a", embedding,
             });
             insertSkill(ctx.globalDb, {
                 name: "project-b", description: "B", tags: ["tag2"], keywords: [],
                 contentHash: "b", filePath: "/b.md", scope: "project",
                 projectPath: ctx.projectDir,
-                snippet: "b", indexableText: "b", embedding,
+                snippet: "b", overview: "", indexableText: "b", embedding,
             });
 
             const all = listSkills(ctx.globalDb, "all", ctx.projectDir);
@@ -502,6 +513,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 const name = parsed.frontmatter.name || getSkillNameFromPath(filePath);
                 const indexableText = generateIndexableText(parsed.frontmatter, parsed.body);
                 const snippet = generateSnippet(parsed.frontmatter, parsed.body);
+                const overview = generateOverview(parsed.body);
                 const embedding = generateEmbedding(indexableText);
 
                 insertSkill(ctx.globalDb, {
@@ -514,6 +526,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                     scope: "global",
                     projectPath: "",
                     snippet,
+                    overview,
                     indexableText,
                     embedding,
                 });
@@ -526,6 +539,71 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
             const results = await searchSkills(ctx.globalDb, "alpha", { topK: 1, cwd: ctx.projectDir });
             expect(results.length).toBeGreaterThan(0);
             expect(results[0].name).toBe("alpha");
+        });
+    });
+
+    // ─── skill_preview ───────────────────────────────────────────
+
+    describe("skill_preview flow", () => {
+        it("should return overview for a skill with headings", async () => {
+            const name = "previewable-skill";
+            const body = "## Setup\n\nInstall the dependencies first.\n\n## Usage\n\nCall the main function.";
+            const frontmatter = { name, description: "A previewable skill", tags: ["test"], keywords: [] };
+            const filePath = path.join(ctx.globalSkillsDir, `${name}.md`);
+
+            await writeSkillFile(filePath, frontmatter, body);
+            const overview = generateOverview(body);
+
+            insertSkill(ctx.globalDb, {
+                name,
+                description: frontmatter.description,
+                tags: frontmatter.tags,
+                keywords: [],
+                contentHash: hashContent(body),
+                filePath,
+                scope: "global",
+                projectPath: "",
+                snippet: "A previewable skill",
+                overview,
+                indexableText: generateIndexableText(frontmatter, body),
+                embedding: generateEmbedding("previewable skill test"),
+            });
+
+            // Simulate skill_preview handler
+            const record = getSkillByName(ctx.globalDb, name);
+            expect(record).toBeDefined();
+            expect(record!.overview).toContain("## Setup");
+            expect(record!.overview).toContain("Install the dependencies first.");
+            expect(record!.overview).toContain("## Usage");
+            expect(record!.overview).toContain("Call the main function.");
+        });
+
+        it("should return empty overview for a skill without headings", async () => {
+            const name = "no-heading-skill";
+            const body = "Just plain text without any headings.";
+            const frontmatter = { name, description: "No headings", tags: [], keywords: [] };
+            const filePath = path.join(ctx.globalSkillsDir, `${name}.md`);
+
+            await writeSkillFile(filePath, frontmatter, body);
+
+            insertSkill(ctx.globalDb, {
+                name,
+                description: frontmatter.description,
+                tags: [],
+                keywords: [],
+                contentHash: hashContent(body),
+                filePath,
+                scope: "global",
+                projectPath: "",
+                snippet: "No headings",
+                overview: generateOverview(body),
+                indexableText: generateIndexableText(frontmatter, body),
+                embedding: generateEmbedding("no heading skill"),
+            });
+
+            const record = getSkillByName(ctx.globalDb, name);
+            expect(record).toBeDefined();
+            expect(record!.overview).toBe("");
         });
     });
 
@@ -544,12 +622,13 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
             await writeSkillFile(filePath, frontmatter, content);
             const indexableText = generateIndexableText(frontmatter, content);
             const snippet = generateSnippet(frontmatter, content);
+            const overview = generateOverview(content);
             const embedding = generateEmbedding(indexableText);
             insertSkill(ctx.globalDb, {
                 name, description, tags, keywords: [],
                 contentHash: hashContent(content), filePath, scope: "global",
                 projectPath: "",
-                snippet, indexableText, embedding,
+                snippet, overview, indexableText, embedding,
             });
 
             // 2. SEARCH — should find the skill
@@ -573,6 +652,7 @@ describe("MCP Integration: Full Skill Lifecycle", () => {
                 embedding: newEmbedding,
                 contentHash: hashContent(updatedBody),
                 snippet: generateSnippet(updatedFrontmatter, updatedBody),
+                overview: generateOverview(updatedBody),
                 indexableText: generateIndexableText(updatedFrontmatter, updatedBody),
             });
 

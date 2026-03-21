@@ -7,7 +7,7 @@ import { createDatabase, insertSkill, updateSkill, deleteSkill, getSkillByName, 
 import { generateEmbedding } from "../core/embeddings.js";
 import { searchSkills, listSkills } from "../core/search.js";
 import { readSkillFile, writeSkillFile, deleteSkillFile, listSkillFiles, hashContent, getSkillNameFromPath } from "../core/file-manager.js";
-import { parseSkillContent, generateIndexableText, generateSnippet } from "../core/frontmatter.js";
+import { parseSkillContent, generateIndexableText, generateSnippet, generateOverview } from "../core/frontmatter.js";
 import { getGlobalPaths, getProjectPaths, ensureGlobalDirs, ensureProjectDirs, getSkillFilePath } from "../core/storage.js";
 import { VERSION } from "../utils/version.js";
 
@@ -62,6 +62,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                                     tags: r.tags,
                                     scope: r.scope,
                                     snippet: r.snippet,
+                                    hasOverview: r.hasOverview,
                                     relevanceScore: Math.round(r.relevanceScore * 1000) / 1000,
                                 })),
                                 totalResults: results.length,
@@ -107,6 +108,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                                     name: record.name,
                                     scope: record.scope,
                                     filePath: record.file_path,
+                                    overview: record.overview || null,
                                     content: parsed.raw,
                                 },
                                 null,
@@ -126,6 +128,68 @@ export function createSkillDepotServer(projectRoot?: string): {
                     isError: true,
                 };
             }
+        }
+    );
+
+    // ─── skill_preview ─────────────────────────────────────────
+    mcpServer.registerTool(
+        "skill_preview",
+        {
+            description:
+                "Get a structured overview (headings + first sentences) of a skill. Cheaper than skill_read when you only need the outline.",
+            inputSchema: {
+                name: z.string().describe("Name of the skill to preview"),
+                cwd: z.string().describe("Absolute path of your current working directory"),
+            },
+        },
+        async ({ name, cwd }) => {
+            const record = getSkillByName(ctx.globalDb, name, cwd);
+            if (!record) {
+                return {
+                    content: [
+                        { type: "text" as const, text: `Skill "${name}" not found.` },
+                    ],
+                    isError: true,
+                };
+            }
+
+            if (!record.overview) {
+                return {
+                    content: [
+                        {
+                            type: "text" as const,
+                            text: JSON.stringify(
+                                {
+                                    name: record.name,
+                                    scope: record.scope,
+                                    overview: null,
+                                    message: "No overview available. Use skill_read for full content.",
+                                },
+                                null,
+                                2
+                            ),
+                        },
+                    ],
+                };
+            }
+
+            return {
+                content: [
+                    {
+                        type: "text" as const,
+                        text: JSON.stringify(
+                            {
+                                name: record.name,
+                                scope: record.scope,
+                                description: record.description,
+                                overview: record.overview,
+                            },
+                            null,
+                            2
+                        ),
+                    },
+                ],
+            };
         }
     );
 
@@ -172,6 +236,7 @@ export function createSkillDepotServer(projectRoot?: string): {
             // Generate embedding and index
             const indexableText = generateIndexableText(frontmatter, content);
             const snippet = generateSnippet(frontmatter, content);
+            const overview = generateOverview(content);
             const embedding = await generateEmbedding(indexableText);
             const contentHash = hashContent(content);
 
@@ -185,6 +250,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                 scope: actualScope,
                 projectPath: actualScope === "global" ? "" : cwd,
                 snippet,
+                overview,
                 indexableText,
                 embedding,
             });
@@ -243,6 +309,7 @@ export function createSkillDepotServer(projectRoot?: string): {
             // Re-index
             const indexableText = generateIndexableText(newFrontmatter, newBody);
             const snippet = generateSnippet(newFrontmatter, newBody);
+            const overview = generateOverview(newBody);
             const embedding = await generateEmbedding(indexableText);
             const contentHash = hashContent(newBody);
 
@@ -252,6 +319,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                 keywords: newFrontmatter.keywords,
                 contentHash,
                 snippet,
+                overview,
                 indexableText,
                 embedding,
             });
@@ -337,6 +405,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                         const name = parsed.frontmatter.name || getSkillNameFromPath(filePath);
                         const indexableText = generateIndexableText(parsed.frontmatter, parsed.body);
                         const snippet = generateSnippet(parsed.frontmatter, parsed.body);
+                        const overview = generateOverview(parsed.body);
                         const embedding = await generateEmbedding(indexableText);
                         const contentHash = hashContent(parsed.raw);
 
@@ -350,6 +419,7 @@ export function createSkillDepotServer(projectRoot?: string): {
                             scope: dbScope,
                             projectPath: dbScope === "global" ? "" : projectPath,
                             snippet,
+                            overview,
                             indexableText,
                             embedding,
                         });

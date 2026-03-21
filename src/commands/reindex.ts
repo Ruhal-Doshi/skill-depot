@@ -3,7 +3,7 @@ import { ensureGlobalDirs, ensureProjectDirs, getGlobalPaths, getProjectPaths } 
 import { createDatabase, clearSkillsByScope, insertSkill } from "../core/database.js";
 import { generateEmbedding } from "../core/embeddings.js";
 import { readSkillFile, listSkillFiles, hashContent, getSkillNameFromPath } from "../core/file-manager.js";
-import { generateIndexableText, generateSnippet } from "../core/frontmatter.js";
+import { generateIndexableText, generateSnippet, generateOverview } from "../core/frontmatter.js";
 import * as log from "../utils/logger.js";
 
 export async function reindexCommand(scope: "all" | "global" | "project"): Promise<void> {
@@ -26,6 +26,7 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
                     const name = parsed.frontmatter.name || getSkillNameFromPath(filePath);
                     const indexableText = generateIndexableText(parsed.frontmatter, parsed.body);
                     const snippet = generateSnippet(parsed.frontmatter, parsed.body);
+                    const overview = generateOverview(parsed.body);
                     const embedding = await generateEmbedding(indexableText);
                     const contentHash = hashContent(parsed.raw);
 
@@ -39,6 +40,7 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
                         scope: "global",
                         projectPath: "",
                         snippet,
+                        overview,
                         indexableText,
                         embedding,
                     });
@@ -74,6 +76,7 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
                         const name = parsed.frontmatter.name || getSkillNameFromPath(filePath);
                         const indexableText = generateIndexableText(parsed.frontmatter, parsed.body);
                         const snippet = generateSnippet(parsed.frontmatter, parsed.body);
+                        const overview = generateOverview(parsed.body);
                         const embedding = await generateEmbedding(indexableText);
                         const contentHash = hashContent(parsed.raw);
 
@@ -87,6 +90,7 @@ export async function reindexCommand(scope: "all" | "global" | "project"): Promi
                             scope: "project",
                             projectPath: projectRoot,
                             snippet,
+                            overview,
                             indexableText,
                             embedding,
                         });

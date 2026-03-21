@@ -7,7 +7,8 @@ import {
     insertSkill,
     type SkillInsert,
 } from "../../src/core/database.js";
-import { listSkills } from "../../src/core/search.js";
+import { searchSkills, listSkills } from "../../src/core/search.js";
+import { generateBM25Embedding } from "../../src/core/embeddings.js";
 
 function makeEmbedding(seed: number = 0): Float32Array {
     const emb = new Float32Array(384);
@@ -35,6 +36,7 @@ function makeSkill(
         scope: "global",
         projectPath: overrides.scope === "project" ? "/project/path" : "",
         snippet: `Snippet for ${name}`,
+        overview: "",
         indexableText: `${name} test`,
         embedding: makeEmbedding(name.charCodeAt(0)),
         ...overrides,
@@ -143,6 +145,50 @@ describe("search", () => {
                 "middle",
                 "zebra",
             ]);
+
+            globalDb.close();
+        });
+    });
+
+    describe("searchSkills", () => {
+        it("should set hasOverview true when overview is non-empty", async () => {
+            const globalDb = createDatabase(globalDbPath);
+
+            insertSkill(globalDb, makeSkill("with-overview", {
+                scope: "global",
+                overview: "## Setup\nInstall deps.",
+                indexableText: "with-overview setup install",
+                embedding: generateBM25Embedding("with-overview setup install"),
+            }));
+
+            const results = await searchSkills(globalDb, "setup install", {
+                topK: 5,
+                scope: "all",
+            });
+
+            expect(results.length).toBeGreaterThan(0);
+            expect(results[0].hasOverview).toBe(true);
+
+            globalDb.close();
+        });
+
+        it("should set hasOverview false when overview is empty", async () => {
+            const globalDb = createDatabase(globalDbPath);
+
+            insertSkill(globalDb, makeSkill("no-overview", {
+                scope: "global",
+                overview: "",
+                indexableText: "no-overview plain skill",
+                embedding: generateBM25Embedding("no-overview plain skill"),
+            }));
+
+            const results = await searchSkills(globalDb, "plain skill", {
+                topK: 5,
+                scope: "all",
+            });
+
+            expect(results.length).toBeGreaterThan(0);
+            expect(results[0].hasOverview).toBe(false);
 
             globalDb.close();
         });

@@ -100,3 +100,62 @@ export function generateSnippet(
         ? cleaned.slice(0, maxLength - 3) + "..."
         : cleaned;
 }
+
+/**
+ * Generate a structured overview from the skill body.
+ * Extracts each markdown heading and the first sentence beneath it.
+ * Returns "" if the body contains no headings.
+ */
+export function generateOverview(body: string): string {
+    if (!body) return "";
+
+    const lines = body.split("\n");
+    const sections: string[] = [];
+    let inCodeBlock = false;
+    let currentHeading: string | null = null;
+    let foundSentence = false;
+
+    for (const line of lines) {
+        // Track fenced code blocks
+        if (line.trimStart().startsWith("```") || line.trimStart().startsWith("~~~")) {
+            inCodeBlock = !inCodeBlock;
+            continue;
+        }
+
+        if (inCodeBlock) continue;
+
+        // Check for heading
+        if (line.startsWith("#")) {
+            // Flush previous heading if we haven't found a sentence for it
+            if (currentHeading !== null) {
+                sections.push(currentHeading);
+            }
+            currentHeading = line;
+            foundSentence = false;
+            continue;
+        }
+
+        // Look for first sentence after a heading
+        if (currentHeading !== null && !foundSentence) {
+            const trimmed = line.trim();
+            if (trimmed.length === 0) continue;
+
+            // Extract first sentence: up to ". " or ".\n" or end of line
+            const sentenceEnd = trimmed.search(/\.\s/);
+            const sentence = sentenceEnd !== -1
+                ? trimmed.slice(0, sentenceEnd + 1)
+                : trimmed;
+
+            sections.push(currentHeading + "\n" + sentence);
+            currentHeading = null;
+            foundSentence = true;
+        }
+    }
+
+    // Flush last heading if no sentence followed it
+    if (currentHeading !== null) {
+        sections.push(currentHeading);
+    }
+
+    return sections.length > 0 ? sections.join("\n\n") : "";
+}

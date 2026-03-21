@@ -4,6 +4,7 @@ import {
     serializeSkill,
     generateIndexableText,
     generateSnippet,
+    generateOverview,
     type SkillFrontmatter,
 } from "../../src/core/frontmatter.js";
 
@@ -208,6 +209,106 @@ Body.`;
 
             expect(snippet.length).toBe(200);
             expect(snippet.endsWith("...")).toBe(true);
+        });
+    });
+
+    describe("generateOverview", () => {
+        it("should extract headings and first sentences", () => {
+            const body = `## Getting Started
+
+First you need to install the dependencies. Then configure the environment.
+
+## Configuration
+
+Set up your config file in the root directory. Make sure to add API keys.
+
+## Deployment
+
+Run the deploy command to push to production.`;
+
+            const overview = generateOverview(body);
+
+            expect(overview).toContain("## Getting Started");
+            expect(overview).toContain("First you need to install the dependencies.");
+            expect(overview).toContain("## Configuration");
+            expect(overview).toContain("Set up your config file in the root directory.");
+            expect(overview).toContain("## Deployment");
+            expect(overview).toContain("Run the deploy command to push to production.");
+        });
+
+        it("should return empty string when no headings", () => {
+            const body = "Just plain text without any headings.\n\nAnother paragraph.";
+            expect(generateOverview(body)).toBe("");
+        });
+
+        it("should handle consecutive headings with no body text", () => {
+            const body = `## First Heading
+
+## Second Heading
+
+Some content here.`;
+
+            const overview = generateOverview(body);
+
+            expect(overview).toContain("## First Heading");
+            expect(overview).toContain("## Second Heading");
+            expect(overview).toContain("Some content here.");
+        });
+
+        it("should skip content inside fenced code blocks", () => {
+            const body = `## Setup
+
+Install the package.
+
+\`\`\`bash
+npm install skill-depot
+\`\`\`
+
+## Usage
+
+Call the function directly.`;
+
+            const overview = generateOverview(body);
+
+            expect(overview).toContain("## Setup");
+            expect(overview).toContain("Install the package.");
+            expect(overview).toContain("## Usage");
+            expect(overview).toContain("Call the function directly.");
+            expect(overview).not.toContain("npm install");
+        });
+
+        it("should extract only the first sentence from multi-sentence paragraphs", () => {
+            const body = `## Overview
+
+This is the first sentence. This is the second sentence. And a third one.`;
+
+            const overview = generateOverview(body);
+
+            expect(overview).toContain("This is the first sentence.");
+            expect(overview).not.toContain("second sentence");
+        });
+
+        it("should handle heading with only a code block beneath", () => {
+            const body = `## Example
+
+\`\`\`typescript
+const x = 1;
+\`\`\`
+
+## Next Section
+
+Some text here.`;
+
+            const overview = generateOverview(body);
+
+            expect(overview).toContain("## Example");
+            expect(overview).toContain("## Next Section");
+            expect(overview).toContain("Some text here.");
+            expect(overview).not.toContain("const x");
+        });
+
+        it("should return empty string for empty body", () => {
+            expect(generateOverview("")).toBe("");
         });
     });
 });

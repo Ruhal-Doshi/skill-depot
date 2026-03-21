@@ -7,7 +7,7 @@ import { ensureGlobalDirs, ensureProjectDirs, getGlobalPaths, getProjectPaths } 
 import { createDatabase, insertSkill, getSkillByName } from "../core/database.js";
 import { generateEmbedding, isModelDownloaded } from "../core/embeddings.js";
 import { readSkillFile, copySkillFile, getSkillNameFromPath, hashContent, deleteSkillFile, listSkillFiles, fileExists } from "../core/file-manager.js";
-import { generateIndexableText, generateSnippet } from "../core/frontmatter.js";
+import { generateIndexableText, generateSnippet, generateOverview } from "../core/frontmatter.js";
 import { detectAgents, summarizeDiscovery, type DiscoveredSkills } from "../discovery/detector.js";
 import { saveConfig, type SkillDepotConfig } from "../utils/config.js";
 import { VERSION } from "../utils/version.js";
@@ -263,6 +263,7 @@ async function indexFile(
 
     const indexableText = generateIndexableText(parsed.frontmatter, parsed.body);
     const snippet = generateSnippet(parsed.frontmatter, parsed.body);
+    const overview = generateOverview(parsed.body);
     const embedding = await generateEmbedding(indexableText);
     const contentHash = hashContent(parsed.raw);
 
@@ -276,6 +277,7 @@ async function indexFile(
         scope,
         projectPath,
         snippet,
+        overview,
         indexableText,
         embedding,
     });

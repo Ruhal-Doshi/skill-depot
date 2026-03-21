@@ -11,7 +11,8 @@
 - **🤖 Agent-Agnostic** — Works with Claude Code, Codex, OpenClaw, Gemini, and any MCP-compatible agent
 - **📂 Two-Scope Storage** — Global skills (`~/.skill-depot/`) available everywhere, project skills (`.skill-depot/`) synced via git
 - **⚡ Auto-Discovery** — Finds existing skills from your AI agents during setup
-- **🔌 MCP Protocol** — Integrates seamlessly as an MCP server with 7 tools for skill management
+- **🔌 MCP Protocol** — Integrates seamlessly as an MCP server with 8 tools for skill management
+- **📊 Tiered Detail Levels** — Three levels of detail (snippet → overview → full content) to minimize token usage
 
 ## 🚀 Quick Start
 
@@ -52,7 +53,8 @@ Your agent now has access to these tools:
 
 | Tool | Description |
 |------|-------------|
-| `skill_search` | Semantic search — returns metadata + snippets |
+| `skill_search` | Semantic search — returns metadata, snippets, and `hasOverview` flag |
+| `skill_preview` | Get a structured overview (headings + first sentences) without loading full content |
 | `skill_read` | Load the full content of a skill |
 | `skill_save` | Save a new skill and index it |
 | `skill_update` | Update an existing skill |
@@ -73,11 +75,26 @@ skill-depot acts as a **RAG layer** for agent skills:
 1. Skills are stored as Markdown files with YAML frontmatter
 2. Each skill is embedded into a 384-dimensional vector using a local transformer model
 3. When an agent needs a skill, it searches by meaning — only the most relevant skills are returned
-4. The agent can then load the full content of selected skills via a second tool call
+4. Results include a `hasOverview` flag — agents can load a structured overview (`skill_preview`) or the full content (`skill_read`)
+
+### Tiered Detail Levels
+
+skill-depot serves context at three levels of detail to minimize token usage:
+
+| Level | Tool | What You Get | Typical Size |
+|-------|------|-------------|-------------|
+| **L0 — Snippet** | `skill_search` | 200-char preview + metadata | ~200 chars |
+| **L1 — Overview** | `skill_preview` | Headings + first sentence per section | ~500-2000 chars |
+| **L2 — Full** | `skill_read` | Complete raw markdown | Unbounded |
+
+Agents can progressively load detail — check the snippet, preview the outline, and only load full content when needed:
 
 ```
 Agent → skill_search("deploy nextjs to vercel")
-     ← [{ name: "deploy-vercel", score: 0.92, snippet: "..." }, ...]
+     ← [{ name: "deploy-vercel", score: 0.92, snippet: "...", hasOverview: true }, ...]
+
+Agent → skill_preview("deploy-vercel")
+     ← { overview: "## Steps\nInstall the Vercel CLI.\n\n## Configuration\nSet environment variables." }
 
 Agent → skill_read("deploy-vercel")
      ← Full markdown content of the skill

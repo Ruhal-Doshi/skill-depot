@@ -6,7 +6,7 @@ export { createDatabase, insertSkill, updateSkill, deleteSkill, getSkillByName, 
 export { generateEmbedding, generateBM25Embedding, isModelDownloaded } from "./core/embeddings.js";
 export { searchSkills, listSkills } from "./core/search.js";
 export { readSkillFile, writeSkillFile, deleteSkillFile, listSkillFiles, hashContent } from "./core/file-manager.js";
-export { parseSkillContent, serializeSkill, generateIndexableText, generateSnippet } from "./core/frontmatter.js";
+export { parseSkillContent, serializeSkill, generateIndexableText, generateSnippet, generateOverview } from "./core/frontmatter.js";
 export { getGlobalDir, getGlobalPaths, getProjectPaths, ensureGlobalDirs, ensureProjectDirs, getSkillFilePath } from "./core/storage.js";
 export { detectAgents, summarizeDiscovery } from "./discovery/detector.js";
 

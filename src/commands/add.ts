@@ -5,7 +5,7 @@ import { ensureGlobalDirs, ensureProjectDirs, getGlobalPaths, getProjectPaths, g
 import { createDatabase, insertSkill, getSkillByName } from "../core/database.js";
 import { generateEmbedding } from "../core/embeddings.js";
 import { readSkillFile, copySkillFile, getSkillNameFromPath, hashContent } from "../core/file-manager.js";
-import { generateIndexableText, generateSnippet } from "../core/frontmatter.js";
+import { generateIndexableText, generateSnippet, generateOverview } from "../core/frontmatter.js";
 import * as log from "../utils/logger.js";
 
 interface AddOptions {
@@ -44,6 +44,7 @@ export async function addCommand(file: string, options: AddOptions): Promise<voi
         const spinner = ora(`Indexing ${name}...`).start();
         const indexableText = generateIndexableText(parsed.frontmatter, parsed.body);
         const snippet = generateSnippet(parsed.frontmatter, parsed.body);
+        const overview = generateOverview(parsed.body);
         const embedding = await generateEmbedding(indexableText);
         const contentHash = hashContent(parsed.raw);
 
@@ -57,6 +58,7 @@ export async function addCommand(file: string, options: AddOptions): Promise<voi
             scope,
             projectPath: scope === "global" ? "" : projectRoot,
             snippet,
+            overview,
             indexableText,
             embedding,
         });
