@@ -20,9 +20,10 @@ program
     .command("init")
     .description("Initialize skill-depot with auto-discovery of existing agent skills")
     .option("--auto", "Non-interactive mode — import all discovered skills")
+    .option("--global-only", "Set up global skills only (no project footprint)")
     .action(async (options) => {
         try {
-            await initCommand({ auto: options.auto });
+            await initCommand({ auto: options.auto, globalOnly: options.globalOnly });
         } catch (err) {
             log.error(`Init failed: ${(err as Error).message}`);
             process.exit(1);
@@ -156,6 +157,38 @@ program
     .action(async () => {
         const { doctorCommand } = await import("./commands/doctor.js");
         await doctorCommand();
+    });
+
+// ─── skills (skills.sh integration) ────────────────────────
+const skillsCmd = program
+    .command("skills")
+    .description("Manage skills via skills.sh — install, import, and clean up agent context");
+
+skillsCmd
+    .command("add")
+    .description("Install skills via skills.sh, then index into skill-depot")
+    .allowUnknownOption(true)
+    .helpOption(false)
+    .action(async (_options, cmd) => {
+        const { skillsAddCommand } = await import("./commands/skills.js");
+        await skillsAddCommand(cmd.args);
+    });
+
+skillsCmd
+    .command("import")
+    .description("Import already-installed skills.sh skills into skill-depot")
+    .action(async () => {
+        const { skillsImportCommand } = await import("./commands/skills.js");
+        await skillsImportCommand();
+    });
+
+skillsCmd
+    .command("list")
+    .alias("ls")
+    .description("List skills in ~/.agents/skills/ and their skill-depot index status")
+    .action(async () => {
+        const { skillsListCommand } = await import("./commands/skills.js");
+        await skillsListCommand();
     });
 
 program.parse();
