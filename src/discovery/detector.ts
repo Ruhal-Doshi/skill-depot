@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { listSkillFiles } from "../core/file-manager.js";
 import matter from "gray-matter";
 
@@ -41,11 +41,34 @@ function isSkillFile(filePath: string): boolean {
     try {
         const raw = readFileSync(filePath, "utf-8");
         const { data } = matter(raw);
-        // A valid skill must have a description in its frontmatter
         return typeof data.description === "string" && data.description.length > 0;
     } catch {
         return false;
     }
+}
+
+/**
+ * Scan a skills.sh canonical directory (~/.agents/skills/ or <cwd>/.agents/skills/).
+ * Each subdirectory contains a SKILL.md file — the pattern is <dir>/<name>/SKILL.md.
+ * Returns the SKILL.md file paths for every valid skill found.
+ */
+function scanSkillsShDir(dirPath: string): string[] {
+    if (!existsSync(dirPath)) return [];
+
+    const results: string[] = [];
+    try {
+        const entries = readdirSync(dirPath, { withFileTypes: true });
+        for (const entry of entries) {
+            if (!entry.isDirectory()) continue;
+            const skillMd = path.join(dirPath, entry.name, "SKILL.md");
+            if (existsSync(skillMd)) {
+                results.push(skillMd);
+            }
+        }
+    } catch {
+        // directory unreadable
+    }
+    return results;
 }
 
 /**
@@ -69,12 +92,11 @@ export async function detectAgents(
         agent: string,
         scope: "global" | "project"
     ) => {
-        const seen = new Set<string>(); // Deduplicate files across overlapping dirs
+        const seen = new Set<string>();
         for (const { path: dir, dedicated } of dirs) {
             if (existsSync(dir)) {
                 let files = await listSkillFiles(dir);
 
-                // In root (non-dedicated) dirs, validate each file
                 if (!dedicated) {
                     files = files.filter(isSkillFile);
                 }
@@ -87,6 +109,31 @@ export async function detectAgents(
             }
         }
     };
+
+    // ─── skills.sh canonical store (~/.agents/skills/<name>/SKILL.md) ───
+    const globalAgentsSkillsDir = path.join(home, ".agents", "skills");
+    const skillsShFiles = scanSkillsShDir(globalAgentsSkillsDir);
+    if (skillsShFiles.length > 0) {
+        results.push({
+            agent: "skills.sh",
+            scope: "global",
+            directory: globalAgentsSkillsDir,
+            files: skillsShFiles,
+        });
+    }
+
+    if (projectRoot) {
+        const projectAgentsSkillsDir = path.join(projectRoot, ".agents", "skills");
+        const projectSkillsShFiles = scanSkillsShDir(projectAgentsSkillsDir);
+        if (projectSkillsShFiles.length > 0) {
+            results.push({
+                agent: "skills.sh",
+                scope: "project",
+                directory: projectAgentsSkillsDir,
+                files: projectSkillsShFiles,
+            });
+        }
+    }
 
     // ─── Claude Code ────────────────────────────────────────────
     await scanDirs(
