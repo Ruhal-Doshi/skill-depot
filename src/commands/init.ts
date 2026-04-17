@@ -13,8 +13,11 @@ import { saveConfig, type SkillDepotConfig } from "../utils/config.js";
 import { VERSION } from "../utils/version.js";
 import * as log from "../utils/logger.js";
 
+type SetupScope = "global-only" | "global-and-project";
+
 interface InitOptions {
     auto?: boolean;
+    globalOnly?: boolean;
 }
 
 export async function initCommand(options: InitOptions = {}): Promise<void> {
@@ -25,17 +28,57 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
     const projectRoot = process.cwd();
 
-    // ─── 1. Ensure directories ──────────────────────────────────
+    // ─── 1. Determine setup scope ─────────────────────────────
+    let scope: SetupScope;
+
+    if (options.globalOnly) {
+        scope = "global-only";
+    } else if (options.auto) {
+        scope = "global-and-project";
+    } else {
+        const { setupScope } = await inquirer.prompt([
+            {
+                type: "list",
+                name: "setupScope",
+                message: "How would you like to set up skill-depot?",
+                choices: [
+                    {
+                        name: `Global only ${chalk.dim("— skills available everywhere, no project footprint")}`,
+                        value: "global-only",
+                    },
+                    {
+                        name: `Global + Project ${chalk.dim("— global skills plus project-specific skills in .skill-depot/")}`,
+                        value: "global-and-project",
+                    },
+                ],
+            },
+        ]);
+        scope = setupScope;
+    }
+
+    const includeProject = scope === "global-and-project";
+
+    // ─── 2. Ensure directories ──────────────────────────────────
     const spinner = ora("Setting up skill-depot directories...").start();
     const globalPaths = await ensureGlobalDirs();
-    const projectPaths = await ensureProjectDirs(projectRoot);
-    spinner.succeed("Directories created");
+    let projectPaths: Awaited<ReturnType<typeof ensureProjectDirs>> | null = null;
+    if (includeProject) {
+        projectPaths = await ensureProjectDirs(projectRoot);
+    }
+    spinner.succeed(
+        includeProject
+            ? "Global and project directories created"
+            : "Global directories created"
+    );
 
     // ─── 3. Discover existing agent skills ─────────────────────
     log.heading("Discovering existing skills");
 
-    const discovered = await detectAgents(projectRoot);
-    const summary = summarizeDiscovery(discovered);
+    const discovered = await detectAgents(includeProject ? projectRoot : undefined);
+    const filteredDiscovered = includeProject
+        ? discovered
+        : discovered.filter((d) => d.scope === "global");
+    const summary = summarizeDiscovery(filteredDiscovered);
 
     if (summary.totalSkills === 0) {
         log.info("No existing agent skills found. You can add skills later using the MCP tools.");
@@ -47,7 +90,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     }
 
     // ─── 4. Import global skills ───────────────────────────────
-    const globalDiscovered = discovered.filter((d) => d.scope === "global");
+    const globalDiscovered = filteredDiscovered.filter((d) => d.scope === "global");
     let globalCopied: string[] = [];
 
     if (globalDiscovered.length > 0) {
@@ -60,19 +103,21 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     }
 
     // ─── 5. Import project skills ─────────────────────────────
-    const projectDiscovered = discovered.filter((d) => d.scope === "project");
     let projectCopied: string[] = [];
 
-    if (projectDiscovered.length > 0) {
-        log.heading("Project Skills");
-        projectCopied = await selectAndCopySkills(
-            projectDiscovered,
-            projectPaths.projectSkillsDir,
-            options.auto || false
-        );
+    if (includeProject && projectPaths) {
+        const projectDiscovered = filteredDiscovered.filter((d) => d.scope === "project");
+        if (projectDiscovered.length > 0) {
+            log.heading("Project Skills");
+            projectCopied = await selectAndCopySkills(
+                projectDiscovered,
+                projectPaths.projectSkillsDir,
+                options.auto || false
+            );
+        }
     }
 
-    // ─── 6. Ask to delete originals ────────────────────────────
+    // ─── 6. Ask to clean up originals ──────────────────────────
     const allCopied = [...globalCopied, ...projectCopied];
     if (allCopied.length > 0 && !options.auto) {
         console.log();
@@ -80,7 +125,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
             {
                 type: "confirm",
                 name: "shouldDelete",
-                message: "Remove the original files from agent directories?",
+                message: "Remove the original files from agent directories to reduce context bloat?",
                 default: false,
             },
         ]);
@@ -106,7 +151,6 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
     if (!isModelDownloaded()) {
         const modelSpinner = ora("Downloading embedding model...").start();
-        // Trigger model download by generating a test embedding
         await generateEmbedding("test", (progress) => {
             if (progress.progress !== undefined) {
                 modelSpinner.text = `Downloading embedding model... ${Math.round(progress.progress)}%`;
@@ -121,7 +165,9 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     const globalDb = createDatabase(globalPaths.globalDbPath);
 
     const globalFiles = await listSkillFiles(globalPaths.globalSkillsDir);
-    const projectFiles = await listSkillFiles(projectPaths.projectSkillsDir);
+    const projectFiles = (includeProject && projectPaths)
+        ? await listSkillFiles(projectPaths.projectSkillsDir)
+        : [];
     const totalFiles = globalFiles.length + projectFiles.length;
 
     if (totalFiles > 0) {
@@ -161,7 +207,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     // ─── 9. Save config ────────────────────────────────────────
     const config: SkillDepotConfig = {
         version: VERSION,
-        projectRoots: [projectRoot],
+        projectRoots: includeProject ? [projectRoot] : [],
         embeddingModel: "Xenova/all-MiniLM-L6-v2",
         defaultScope: "global",
     };
@@ -170,7 +216,11 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     // ─── 10. Print success ────────────────────────────────────
     log.heading("Ready");
     console.log();
-    log.success("skill-depot is ready!");
+    log.success(
+        includeProject
+            ? "skill-depot is ready! (global + project)"
+            : "skill-depot is ready! (global only)"
+    );
     console.log();
     console.log(chalk.dim("  Add this to your agent's MCP config:"));
     console.log();
